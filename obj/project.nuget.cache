@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "dgSpecHash": "Bz/sX+K0g3c=",
+  "success": true,
+  "projectFilePath": "C:\\Users\\ASUS\\Desktop\\I\\asp\\SE-LAB\\Ledger and Inventory Service\\Ledger and Inventory Service\\Ledger and Inventory Service.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\ASUS\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.8\\microsoft.aspnetcore.openapi.10.0.8.nupkg.sha512",
+    "C:\\Users\\ASUS\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "Package 'Microsoft.OpenApi' 2.0.0 has a known high severity vulnerability, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc",
+      "projectPath": "C:\\Users\\ASUS\\Desktop\\I\\asp\\SE-LAB\\Ledger and Inventory Service\\Ledger and Inventory Service\\Ledger and Inventory Service.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\Users\\ASUS\\Desktop\\I\\asp\\SE-LAB\\Ledger and Inventory Service\\Ledger and Inventory Service\\Ledger and Inventory Service.csproj",
+      "libraryId": "Microsoft.OpenApi",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}

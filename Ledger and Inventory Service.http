@@ -1,0 +1,6 @@
+@Ledger_and_Inventory_Service_HostAddress = http://localhost:5246
+
+GET {{Ledger_and_Inventory_Service_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
