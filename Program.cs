@@ -1,5 +1,8 @@
+DotNetEnv.Env.Load();
 var builder = WebApplication.CreateBuilder(args);
-
+var connectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection");
+Console.WriteLine($"ConnectionString: {connectionString}");
 // Add services to the container.
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
@@ -7,6 +10,16 @@ builder.Services.AddOpenApi();
 //swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+            .AllowAnyHeader()
+            .AllowAnyMethod();
+    });
+});
 
 var app = builder.Build();
 
@@ -38,11 +51,9 @@ app.MapGet("/weatherforecast", () =>
 .WithName("GetWeatherForecast");
 
 
-
 app.UseSwagger();
 app.UseSwaggerUI();
-
-
+app.UseCors("Frontend");
 app.Run();
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
