@@ -18,4 +18,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="chore\LB-1-repo-rules\.github\CODEOWNERS" />
+  </ItemGroup>
+
 </Project>
