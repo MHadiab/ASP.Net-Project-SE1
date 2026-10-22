@@ -1,62 +1,42 @@
-DotNetEnv.Env.Load();
+using System.Text.Json;
+using Ledger_and_Inventory_Service.Data;
+using Ledger_and_Inventory_Service.Errors;
+using Microsoft.EntityFrameworkCore;
+
+//import .env file
+try { DotNetEnv.Env.TraversePath().Load(); }
+catch (FileNotFoundException) { }
+
 var builder = WebApplication.CreateBuilder(args);
+
+//overrides the default logs and displays the log as JSON in the console.
+builder.Logging.ClearProviders();
+builder.Logging.AddJsonConsole();
+
 var connectionString =
-    builder.Configuration.GetConnectionString("DefaultConnection");
-Console.WriteLine($"ConnectionString: {connectionString}");
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+    builder.Configuration.GetConnectionString("Default")
+    ?? throw new InvalidOperationException(
+        "ConnectionStrings__Default is not set");
+//postgres
+builder.Services.AddDbContext<AppDbContext>(o =>
+    o.UseNpgsql(connectionString));
+
+
+builder.Services.AddControllers()
+    //JSON snake-case converter
+    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy =
+        JsonNamingPolicy.SnakeCaseLower);
+
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 //swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("Frontend", policy =>
-    {
-        policy.WithOrigins("http://localhost:5173")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
-    });
-});
-
 var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
-app.UseHttpsRedirection();
-
-var summaries = new[]
-{
-    "VersionB", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Super Hot", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
-
-
+app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI();
-app.UseCors("Frontend");
+app.MapControllers();
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
