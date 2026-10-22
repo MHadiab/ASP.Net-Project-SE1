@@ -34,7 +34,19 @@ builder.Services.AddProblemDetails();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+
+//CORS: allow the React (Vite) frontend
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy => policy
+        .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+        .WithExposedHeaders("X-Correlation-ID"));
+});
+
 var app = builder.Build();
+app.UseCors("Frontend");
 app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI();
