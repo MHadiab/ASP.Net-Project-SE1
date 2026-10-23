@@ -1,8 +1,19 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using Ledger_and_Inventory_Service.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace Ledger_and_Inventory_Service.Data;
 
-public class AppDbContext(DbContextOptions<AppDbContext> options):DbContext(options)
+public class AppDbContext(DbContextOptions<AppDbContext> options) :DbContext(options)
 {
-    
+    public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
+
+    public DbSet<JournalLine> JournalLines => Set<JournalLine>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.ApplyConfigurationsFromAssembly(
+            typeof(AppDbContext).Assembly);
+    }
 }
