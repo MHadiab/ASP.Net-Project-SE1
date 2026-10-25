@@ -9,6 +9,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) :DbContext(opt
 
     public DbSet<JournalLine> JournalLines => Set<JournalLine>();
 
+    public DbSet<LedgerAccount> LedgerAccounts => Set<LedgerAccount>();
+
+    public DbSet<AccountBalance> AccountBalances => Set<AccountBalance>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

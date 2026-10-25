@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
+using Ledger_and_Inventory_Service.Services;
 using Microsoft.EntityFrameworkCore;
 
 //import .env file
@@ -20,6 +21,8 @@ var connectionString =
 //postgres
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseNpgsql(connectionString));
+
+builder.Services.AddScoped<IBalanceService, BalanceService>();
 
 
 builder.Services.AddControllers()
