@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
+using Ledger_and_Inventory_Service.Services;
+using Ledger_and_Inventory_Service.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 //import .env file
@@ -26,6 +28,9 @@ builder.Services.AddControllers()
     //JSON snake-case converter
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy =
         JsonNamingPolicy.SnakeCaseLower);
+
+builder.Services.AddScoped<IHoldService, HoldService>();
+
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();

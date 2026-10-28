@@ -18,6 +18,9 @@ public class HoldConfiguration : IEntityTypeConfiguration<Hold>
             .HasColumnName("account_id")
             .IsRequired();
 
+        builder.Property(h => h.Amount)
+            .HasColumnName("amount") 
+            .IsRequired();
         //todo:
         // builder.HasOne(e => e.Account)
         //     .WithMany() //  .WithMany(a => a.Holds) اگر در اکانت ها هولد را نگه مداشتیم باید این قسمت را عوض کنیم به
@@ -39,6 +42,7 @@ public class HoldConfiguration : IEntityTypeConfiguration<Hold>
             .HasColumnName("reference_type")
             .HasMaxLength(32)
             .IsRequired();
+        
 
         builder.Property(e => e.ReferenceId)
             .HasColumnName("reference_id")
