@@ -1,0 +1,1109 @@
+openapi: 3.1.0
+info:
+  title: LabBank S2 - Balance & Ledger Service
+  version: 1.0.0
+  description: |
+    API of the S2 service (LDG2-S): the system of record for money in LabBank.
+
+    Conventions (from the shared technical standards):
+    * HTTP + JSON (UTF-8). All business paths live under `/api/v1` (GEN-02).
+    * Amounts are 64-bit integers in IRR (rial). Never float/double (GEN-03).
+    * IDs are UUIDs (v7 recommended). Timestamps are ISO 8601 in UTC (GEN-04, GEN-05).
+    * JSON property names are snake_case.
+    * Errors use RFC 9457 `application/problem+json` with an extra `code` field (GEN-06).
+    * Every mutating POST/PATCH accepts `Idempotency-Key` (GEN-07).
+    * `X-Correlation-ID` is accepted or generated and always returned (GEN-08).
+    * Lists use `limit` (max 200) and `cursor`, and return `next_cursor` (GEN-09).
+    * `GET /health` and `GET /ready` are at the root (GEN-10).
+
+    Ledger rules: journal entries are double-entry and immutable. A hold is NOT a
+    journal entry; it only reduces the available balance. Corrections are made by
+    posting a reversal entry, never by editing or deleting.
+  contact:
+    name: Team S2
+servers:
+  - url: http://localhost:8082
+    description: Local development (default port of S2, GEN-15)
+tags:
+  - name: Accounts
+    description: Ledger accounts (opened by S1) and their status.
+  - name: Balance
+    description: Book and available balance.
+  - name: Holds
+    description: Temporary reservation of funds, release and capture.
+  - name: Journal
+    description: Immutable double-entry journal entries and reversals.
+  - name: Statement
+    description: Account statement for a time range.
+  - name: Reports
+    description: Read-only reconciliation and audit support (S6).
+  - name: Health
+    description: Liveness and readiness.
+
+security:
+  - bearerAuth: []
+
+paths:
+  # ---------------------------------------------------------------- Accounts
+  /api/v1/ledger-accounts:
+    post:
+      tags: [Accounts]
+      operationId: createLedgerAccount
+      summary: Create the ledger account for a newly opened S1 account
+      description: |
+        Called by S1. The `account_id` must be the same id S1 uses; S2 does not
+        generate a new id. Repeating the same request with the same
+        `Idempotency-Key` returns the same response. An existing `account_id`
+        with a different body returns 409 CONFLICT.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateLedgerAccountRequest'
+            example:
+              account_id: 0192a7d1-0001-7000-8000-00000000a001
+              account_type: CUSTOMER
+              currency: IRR
+      responses:
+        '201':
+          description: Account created with zero balance.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerAccountResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/ledger-accounts/{accountId}:
+    get:
+      tags: [Accounts]
+      operationId: getLedgerAccount
+      summary: Get a ledger account and its status
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The ledger account.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerAccountResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/ledger-accounts/{accountId}/status:
+    patch:
+      tags: [Accounts]
+      operationId: updateLedgerAccountStatus
+      summary: Update the account status (ACTIVE, FROZEN, CLOSED)
+      description: |
+        Called by S1, which is the source of truth for status. Closing an account
+        with a non-zero balance or an active hold is rejected with
+        409 ACCOUNT_NOT_EMPTY.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAccountStatusRequest'
+      responses:
+        '200':
+          description: Status updated.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LedgerAccountResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ----------------------------------------------------------------- Balance
+  /api/v1/ledger-accounts/{accountId}/balance:
+    get:
+      tags: [Balance]
+      operationId: getBalance
+      summary: Get book, held and available balance
+      description: |
+        `book` = sum of posted credits minus debits. `held` = sum of ACTIVE holds.
+        `available` = `book` - `held`. Expired and released holds are not counted.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: Current balances.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BalanceResponse'
+              example:
+                account_id: 0192a7d1-0001-7000-8000-00000000a001
+                book: { amount: 10000000, currency: IRR }
+                held: { amount: 2500000, currency: IRR }
+                available: { amount: 7500000, currency: IRR }
+                as_of: '2026-10-12T09:00:00Z'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ------------------------------------------------------------------- Holds
+  /api/v1/holds:
+    post:
+      tags: [Holds]
+      operationId: createHold
+      summary: Reserve funds on the source account
+      description: |
+        Reduces the available balance, does not change the book balance and
+        creates no journal entry. Only one hold exists per `transfer_id`:
+        repeating with the same key (or the same account and amount) returns the
+        existing hold; the same `transfer_id` with a different account or amount
+        returns 409 CONFLICT. Two concurrent holds that together exceed the
+        balance cannot both succeed.
+        Suggested idempotency key: `{transfer_id}:hold`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateHoldRequest'
+            example:
+              account_id: 0192a7d1-0001-7000-8000-00000000a001
+              amount: { amount: 2500000, currency: IRR }
+              transfer_id: 0192a7e4-6b1d-7c3e-9a41-2f5d8e0b7c11
+              expires_in_seconds: 900
+      responses:
+        '201':
+          description: Hold created (or the existing hold replayed).
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+              example:
+                hold_id: 0192a7e5-9c40-7a12-8d33-5b6f1e2a4c77
+                account_id: 0192a7d1-0001-7000-8000-00000000a001
+                amount: { amount: 2500000, currency: IRR }
+                status: ACTIVE
+                transfer_id: 0192a7e4-6b1d-7c3e-9a41-2f5d8e0b7c11
+                expires_at: '2026-10-12T09:15:00Z'
+                captured_entry_id: null
+                created_at: '2026-10-12T09:00:00Z'
+                resolved_at: null
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    get:
+      tags: [Holds]
+      operationId: listHolds
+      summary: List holds (optional)
+      parameters:
+        - name: account_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/HoldStatus' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: A page of holds.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedHolds'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/holds/{holdId}:
+    get:
+      tags: [Holds]
+      operationId: getHold
+      summary: Get the status of a hold
+      parameters:
+        - $ref: '#/components/parameters/HoldId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The hold.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/holds/{holdId}/release:
+    post:
+      tags: [Holds]
+      operationId: releaseHold
+      summary: Release a hold without moving money
+      description: |
+        Use when the transfer was rejected or failed before capture. No journal
+        entry is created. Releasing an already released hold returns 200 with the
+        same result. Releasing a captured hold returns 409 HOLD_ALREADY_CAPTURED.
+      parameters:
+        - $ref: '#/components/parameters/HoldId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseHoldRequest'
+      responses:
+        '200':
+          description: Hold is RELEASED.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/holds/{holdId}/capture:
+    post:
+      tags: [Holds]
+      operationId: captureHold
+      summary: Turn a hold into a posted double-entry journal entry
+      description: |
+        One atomic transaction.
+        * INTERNAL: debit the source account, credit `destination_account_id`.
+        * EXTERNAL: debit the source account, credit the system account CLEARING.
+
+        If the destination is inactive or unknown, nothing changes and the hold
+        stays ACTIVE. Repeating with the same `Idempotency-Key` returns the same
+        entry. Suggested key: `{transfer_id}:capture`.
+      parameters:
+        - $ref: '#/components/parameters/HoldId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureHoldRequest'
+            examples:
+              internal:
+                summary: Transfer to another LabBank account
+                value:
+                  transfer_type: INTERNAL
+                  destination_account_id: 0192a7d1-0002-7000-8000-00000000a002
+                  description: Transfer from Ali to Sara
+              external:
+                summary: Transfer to another bank
+                value:
+                  transfer_type: EXTERNAL
+                  description: Outbound interbank transfer
+      responses:
+        '200':
+          description: Hold is CAPTURED and the entry is posted.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CaptureHoldResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ----------------------------------------------------------------- Journal
+  /api/v1/journal-entries:
+    post:
+      tags: [Journal]
+      operationId: postJournalEntry
+      summary: Post a double-entry journal entry directly (internal use)
+      description: |
+        For internal callers or admins only (for example opening balances of test
+        data from the CASH_ISSUANCE system account). The sum of debit lines must
+        equal the sum of credit lines, there must be at least one of each,
+        amounts must be positive and the currency must be IRR.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PostJournalEntryRequest'
+            example:
+              entry_type: OPENING_BALANCE
+              reference_type: MANUAL
+              reference_id: null
+              description: Opening balance for test data
+              currency: IRR
+              lines:
+                - { account_id: 0192a7d0-0000-7000-8000-000000000001, direction: DEBIT, amount: 10000000 }
+                - { account_id: 0192a7d1-0001-7000-8000-00000000a001, direction: CREDIT, amount: 10000000 }
+      responses:
+        '201':
+          description: Entry posted.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalEntryResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    get:
+      tags: [Reports]
+      operationId: listJournalEntries
+      summary: List journal entries with filters (for reconciliation, S6)
+      description: |
+        Read-only. Each entry carries `reference_id` (transfer id) and
+        `correlation_id` so any movement can be traced to its origin. Reads come
+        from a consistent snapshot.
+      parameters:
+        - name: from
+          in: query
+          description: Start of range. A date (Asia/Tehran day boundary) or an ISO 8601 UTC date-time.
+          schema: { type: string }
+        - name: to
+          in: query
+          description: End of range. Same format as `from`.
+          schema: { type: string }
+        - name: entry_type
+          in: query
+          schema: { $ref: '#/components/schemas/EntryType' }
+        - name: reference_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: account_id
+          in: query
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: A page of entries.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PagedJournalEntries'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/journal-entries/{entryId}:
+    get:
+      tags: [Journal]
+      operationId: getJournalEntry
+      summary: Get one journal entry with its lines
+      parameters:
+        - $ref: '#/components/parameters/EntryId'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The entry.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalEntryResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  /api/v1/journal-entries/{entryId}/reverse:
+    post:
+      tags: [Journal]
+      operationId: reverseJournalEntry
+      summary: Correct a posted entry by posting its reverse
+      description: |
+        Creates a new entry with opposite directions and the same amounts and sets
+        `reverses_entry_id`. The original is never modified. An entry can be
+        reversed once (409 ENTRY_ALREADY_REVERSED) and a reversal entry cannot be
+        reversed (409 ENTRY_NOT_REVERSIBLE). A reason is mandatory. If reversing
+        would make a customer balance negative, the default policy is 422
+        INSUFFICIENT_FUNDS (final policy to be confirmed with the instructors).
+        Use this only for entries already posted; before capture use release.
+      parameters:
+        - $ref: '#/components/parameters/EntryId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseEntryRequest'
+            example:
+              reason: Interbank batch rejected after capture
+              case_id: null
+      responses:
+        '201':
+          description: Reversal entry posted.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalEntryResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # --------------------------------------------------------------- Statement
+  /api/v1/ledger-accounts/{accountId}/statement:
+    get:
+      tags: [Statement]
+      operationId: getStatement
+      summary: Paginated account statement for a time range
+      description: |
+        Items are sorted from newest to oldest and include reversal entries. The
+        response also carries the opening and closing balance of the range.
+        `from` greater than `to`, or a range over the allowed maximum, returns
+        400 INVALID_DATE_RANGE. A plain date uses the Asia/Tehran day boundary.
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - name: from
+          in: query
+          description: Start of range (date or ISO 8601 UTC date-time).
+          schema: { type: string }
+        - name: to
+          in: query
+          description: End of range (date or ISO 8601 UTC date-time).
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: A page of statement items.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ----------------------------------------------------------------- Reports
+  /api/v1/reports/trial-balance:
+    get:
+      tags: [Reports]
+      operationId: getTrialBalance
+      summary: Trial balance and ledger integrity check
+      description: |
+        Shows total debit, total credit, whether they are equal and the balance of
+        each account. Read-only and does not affect the live transfer path.
+      parameters:
+        - name: as_of_date
+          in: query
+          description: Business date (Asia/Tehran). Defaults to today.
+          schema: { type: string, format: date }
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200':
+          description: The trial balance.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrialBalanceResponse'
+        '400': { $ref: '#/components/responses/ValidationError' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+  # ------------------------------------------------------------------ Health
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness - the process is running
+      security: []
+      responses:
+        '200':
+          description: Alive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example: { status: ok }
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReady
+      summary: Readiness - dependencies such as the database are reachable
+      security: []
+      responses:
+        '200':
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+              example: { status: ready }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Service-to-service authentication. The final mechanism (API key or JWT)
+        is still to be decided with the instructors (task T0.10).
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Repeating a request with the same key and the same body returns the same
+        response. The same key with a different body returns 409
+        IDEMPOTENCY_KEY_REUSED.
+      schema: { type: string, maxLength: 128 }
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Received or generated by the service and propagated to every downstream call and log line.
+      schema: { type: string, maxLength: 64 }
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    HoldId:
+      name: holdId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EntryId:
+      name: entryId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      description: Page size (maximum 200).
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque cursor taken from `next_cursor` of the previous page.
+      schema: { type: string }
+
+  headers:
+    CorrelationId:
+      description: Correlation id of the request.
+      schema: { type: string }
+
+  responses:
+    ValidationError:
+      description: Invalid or incomplete input (ERROR_VALIDATION, UNBALANCED_ENTRY, CURRENCY_MISMATCH, INVALID_DATE_RANGE).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+          example:
+            type: https://errors.labbank.example/error-validation
+            title: Validation failed
+            status: 400
+            code: ERROR_VALIDATION
+            detail: currency must be IRR
+            correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
+    Unauthorized:
+      description: Token or signature is missing or invalid (UNAUTHORIZED).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    Forbidden:
+      description: Access to the resource is not allowed (FORBIDDEN).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+    NotFound:
+      description: Resource not found (NOT_FOUND).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+          example:
+            type: https://errors.labbank.example/not-found
+            title: Resource not found
+            status: 404
+            code: NOT_FOUND
+            detail: No resource with id 0192a7e4-6b1d-7c3e-9a41-2f5d8e0b7c11
+            correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
+    Conflict:
+      description: |
+        Conflict with the current state (CONFLICT, IDEMPOTENCY_KEY_REUSED,
+        ACCOUNT_NOT_EMPTY, HOLD_ALREADY_CAPTURED, HOLD_NOT_ACTIVE, HOLD_EXPIRED,
+        ENTRY_ALREADY_REVERSED, ENTRY_NOT_REVERSIBLE).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+          example:
+            type: https://errors.labbank.example/hold-already-captured
+            title: Hold already captured
+            status: 409
+            code: HOLD_ALREADY_CAPTURED
+            detail: The hold was already captured
+            correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
+    Unprocessable:
+      description: The request is valid but cannot be applied (INSUFFICIENT_FUNDS, ACCOUNT_NOT_ACTIVE).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+          example:
+            type: https://errors.labbank.example/insufficient-funds
+            title: Insufficient funds
+            status: 422
+            code: INSUFFICIENT_FUNDS
+            detail: Available balance is lower than the requested amount
+            correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
+    ServiceUnavailable:
+      description: A dependency (for example the database) is unavailable (SERVICE_UNAVAILABLE).
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+  schemas:
+    # ------------------------------------------------------------- Shared
+    Currency:
+      type: string
+      enum: [IRR]
+      description: ISO 4217 currency code. Only IRR for now.
+    Money:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Whole rials. Must be greater than zero where a transfer or hold amount is expected.
+          examples: [2500000]
+        currency:
+          $ref: '#/components/schemas/Currency'
+    ErrorCode:
+      type: string
+      description: Base codes from the shared standard plus S2-specific codes.
+      enum:
+        - ERROR_VALIDATION
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - CONFLICT
+        - IDEMPOTENCY_KEY_REUSED
+        - SERVICE_UNAVAILABLE
+        - UPSTREAM_TIMEOUT
+        - INSUFFICIENT_FUNDS
+        - ACCOUNT_NOT_ACTIVE
+        - ACCOUNT_NOT_EMPTY
+        - HOLD_ALREADY_CAPTURED
+        - HOLD_NOT_ACTIVE
+        - HOLD_EXPIRED
+        - UNBALANCED_ENTRY
+        - CURRENCY_MISMATCH
+        - ENTRY_ALREADY_REVERSED
+        - ENTRY_NOT_REVERSIBLE
+        - INVALID_DATE_RANGE
+        - INTERNAL_ERROR
+    ProblemDetails:
+      type: object
+      description: RFC 9457 problem details with an extra `code` field.
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        detail: { type: [string, 'null'] }
+        correlation_id: { type: string }
+        errors:
+          type: array
+          description: Invalid fields, present for ERROR_VALIDATION.
+          items:
+            type: object
+            properties:
+              field: { type: string }
+              message: { type: string }
+    HealthStatus:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+
+    # ------------------------------------------------------------ Accounts
+    AccountType:
+      type: string
+      enum: [CUSTOMER, SYSTEM]
+    AccountStatus:
+      type: string
+      enum: [ACTIVE, FROZEN, CLOSED]
+    CreateLedgerAccountRequest:
+      type: object
+      required: [account_id, account_type, currency]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: The same account_id used by S1.
+        account_type:
+          type: string
+          enum: [CUSTOMER]
+          description: SYSTEM accounts are seeded at startup and cannot be created through the API.
+        currency: { $ref: '#/components/schemas/Currency' }
+    UpdateAccountStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        reason: { type: [string, 'null'], maxLength: 200 }
+    LedgerAccountResponse:
+      type: object
+      required: [account_id, account_type, currency, status, created_at, updated_at]
+      properties:
+        account_id: { type: string, format: uuid }
+        account_type: { $ref: '#/components/schemas/AccountType' }
+        currency: { $ref: '#/components/schemas/Currency' }
+        status: { $ref: '#/components/schemas/AccountStatus' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    # ------------------------------------------------------------- Balance
+    BalanceResponse:
+      type: object
+      required: [account_id, book, held, available, as_of]
+      properties:
+        account_id: { type: string, format: uuid }
+        book:
+          $ref: '#/components/schemas/Money'
+          description: Book balance (posted credits minus debits).
+        held:
+          $ref: '#/components/schemas/Money'
+          description: Sum of ACTIVE holds.
+        available:
+          $ref: '#/components/schemas/Money'
+          description: Withdrawable balance = book - held.
+        as_of: { type: string, format: date-time }
+
+    # --------------------------------------------------------------- Holds
+    HoldStatus:
+      type: string
+      enum: [ACTIVE, CAPTURED, RELEASED, EXPIRED]
+    CreateHoldRequest:
+      type: object
+      required: [account_id, amount, transfer_id]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+          description: Source account.
+        amount:
+          $ref: '#/components/schemas/Money'
+          description: Amount to reserve; must be greater than zero.
+        transfer_id:
+          type: string
+          format: uuid
+          description: Transfer id in S3 (stored as reference_id). One hold per transfer.
+        expires_in_seconds:
+          type: [integer, 'null']
+          minimum: 1
+          description: Optional. Defaults to the configured TTL (for example 900).
+        description: { type: [string, 'null'], maxLength: 300 }
+    HoldResponse:
+      type: object
+      required: [hold_id, account_id, amount, status, transfer_id, expires_at, created_at]
+      properties:
+        hold_id: { type: string, format: uuid }
+        account_id: { type: string, format: uuid }
+        amount: { $ref: '#/components/schemas/Money' }
+        status: { $ref: '#/components/schemas/HoldStatus' }
+        transfer_id: { type: string, format: uuid }
+        expires_at: { type: string, format: date-time }
+        captured_entry_id: { type: [string, 'null'], format: uuid }
+        created_at: { type: string, format: date-time }
+        resolved_at: { type: [string, 'null'], format: date-time }
+    ReleaseHoldRequest:
+      type: object
+      properties:
+        reason: { type: [string, 'null'], maxLength: 200 }
+    TransferType:
+      type: string
+      enum: [INTERNAL, EXTERNAL]
+    CaptureHoldRequest:
+      type: object
+      required: [transfer_type]
+      properties:
+        transfer_type: { $ref: '#/components/schemas/TransferType' }
+        destination_account_id:
+          type: [string, 'null']
+          format: uuid
+          description: Required when transfer_type is INTERNAL. Ignored for EXTERNAL (CLEARING is credited).
+        description: { type: [string, 'null'], maxLength: 300 }
+      if:
+        properties:
+          transfer_type: { const: INTERNAL }
+      then:
+        required: [destination_account_id]
+    CaptureHoldResponse:
+      type: object
+      required: [hold, entry]
+      properties:
+        hold: { $ref: '#/components/schemas/HoldResponse' }
+        entry: { $ref: '#/components/schemas/JournalEntryResponse' }
+    PagedHolds:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HoldResponse' }
+        next_cursor: { type: [string, 'null'] }
+
+    # ------------------------------------------------------------- Journal
+    Direction:
+      type: string
+      enum: [DEBIT, CREDIT]
+    EntryType:
+      type: string
+      enum:
+        - TRANSFER_INTERNAL
+        - TRANSFER_EXTERNAL
+        - OPENING_BALANCE
+        - ADJUSTMENT
+        - REVERSAL
+    ReferenceType:
+      type: string
+      enum: [TRANSFER, HOLD, MANUAL]
+    JournalLineRequest:
+      type: object
+      required: [account_id, direction, amount]
+      properties:
+        account_id: { type: string, format: uuid }
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount:
+          type: integer
+          format: int64
+          exclusiveMinimum: 0
+    PostJournalEntryRequest:
+      type: object
+      required: [entry_type, reference_type, description, currency, lines]
+      properties:
+        entry_type:
+          type: string
+          enum: [OPENING_BALANCE, ADJUSTMENT]
+        reference_type: { $ref: '#/components/schemas/ReferenceType' }
+        reference_id: { type: [string, 'null'], format: uuid }
+        description: { type: string, maxLength: 300 }
+        currency: { $ref: '#/components/schemas/Currency' }
+        lines:
+          type: array
+          minItems: 2
+          description: Total debit must equal total credit; at least one line of each direction.
+          items: { $ref: '#/components/schemas/JournalLineRequest' }
+    JournalLineResponse:
+      type: object
+      required: [line_no, account_id, direction, amount, balance_after]
+      properties:
+        line_no: { type: integer }
+        account_id: { type: string, format: uuid }
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount: { type: integer, format: int64 }
+        balance_after:
+          type: integer
+          format: int64
+          description: Book balance of the account right after this line.
+    JournalEntryResponse:
+      type: object
+      required:
+        - entry_id
+        - entry_number
+        - entry_type
+        - reference_type
+        - description
+        - total
+        - posted_at
+        - business_date
+        - is_reversed
+        - correlation_id
+        - lines
+      properties:
+        entry_id: { type: string, format: uuid }
+        entry_number: { type: integer, format: int64 }
+        entry_type: { $ref: '#/components/schemas/EntryType' }
+        reference_type: { $ref: '#/components/schemas/ReferenceType' }
+        reference_id: { type: [string, 'null'], format: uuid }
+        description: { type: string }
+        total:
+          $ref: '#/components/schemas/Money'
+          description: Total of the debit side.
+        posted_at: { type: string, format: date-time }
+        business_date:
+          type: string
+          format: date
+          description: Financial day in Asia/Tehran.
+        reverses_entry_id: { type: [string, 'null'], format: uuid }
+        is_reversed:
+          type: boolean
+          description: Derived from the existence of a reversal entry; never stored on the original.
+        correlation_id: { type: string }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/JournalLineResponse' }
+    ReverseEntryRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 300 }
+        case_id:
+          type: [string, 'null']
+          description: Reconciliation case id from S6 (optional).
+    PagedJournalEntries:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/JournalEntryResponse' }
+        next_cursor: { type: [string, 'null'] }
+
+    # ----------------------------------------------------------- Statement
+    StatementItem:
+      type: object
+      required: [entry_id, entry_number, posted_at, direction, amount, balance_after, entry_type, description]
+      properties:
+        entry_id: { type: string, format: uuid }
+        entry_number: { type: integer, format: int64 }
+        posted_at: { type: string, format: date-time }
+        direction: { $ref: '#/components/schemas/Direction' }
+        amount: { type: integer, format: int64 }
+        balance_after: { type: integer, format: int64 }
+        entry_type: { $ref: '#/components/schemas/EntryType' }
+        reference_id: { type: [string, 'null'], format: uuid }
+        description: { type: string }
+    StatementResponse:
+      type: object
+      required: [account_id, from, to, opening_balance, closing_balance, items]
+      properties:
+        account_id: { type: string, format: uuid }
+        from: { type: string, format: date-time }
+        to: { type: string, format: date-time }
+        opening_balance: { $ref: '#/components/schemas/Money' }
+        closing_balance: { $ref: '#/components/schemas/Money' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/StatementItem' }
+        next_cursor: { type: [string, 'null'] }
+
+    # ------------------------------------------------------------- Reports
+    TrialBalanceAccount:
+      type: object
+      required: [account_id, account_type, total_debit, total_credit, balance]
+      properties:
+        account_id: { type: string, format: uuid }
+        account_type: { $ref: '#/components/schemas/AccountType' }
+        total_debit: { type: integer, format: int64 }
+        total_credit: { type: integer, format: int64 }
+        balance: { type: integer, format: int64 }
+    TrialBalanceResponse:
+      type: object
+      required: [as_of_date, total_debit, total_credit, is_balanced, accounts]
+      properties:
+        as_of_date: { type: string, format: date }
+        total_debit: { type: integer, format: int64 }
+        total_credit: { type: integer, format: int64 }
+        is_balanced:
+          type: boolean
+          description: True when total_debit equals total_credit.
+        accounts:
+          type: array
+          items: { $ref: '#/components/schemas/TrialBalanceAccount' }
