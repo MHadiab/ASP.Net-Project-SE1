@@ -11,10 +11,17 @@ info:
     * IDs are UUIDs (v7 recommended). Timestamps are ISO 8601 in UTC (GEN-04, GEN-05).
     * JSON property names are snake_case.
     * Errors use RFC 9457 `application/problem+json` with an extra `code` field (GEN-06).
-    * Every mutating POST/PATCH accepts `Idempotency-Key` (GEN-07).
+    * Every mutating POST/PUT accepts `Idempotency-Key` (GEN-07).
     * `X-Correlation-ID` is accepted or generated and always returned (GEN-08).
     * Lists use `limit` (max 200) and `cursor`, and return `next_cursor` (GEN-09).
     * `GET /health` and `GET /ready` are at the root (GEN-10).
+
+    No authentication is required in this version of the contract.
+
+    Account permission: S1 owns the account status (active, frozen, closed). S2 only
+    keeps a single operational flag, `posting_allowed`, set by S1. When it is false,
+    holds and captures on the account are rejected with 422 ACCOUNT_BLOCKED. Release,
+    reads and reversals stay allowed.
 
     Ledger rules: journal entries are double-entry and immutable. A hold is NOT a
     journal entry; it only reduces the available balance. Corrections are made by
@@ -26,7 +33,7 @@ servers:
     description: Local development (default port of S2, GEN-15)
 tags:
   - name: Accounts
-    description: Ledger accounts (opened by S1) and their status.
+    description: Ledger accounts (opened by S1) and their posting permission.
   - name: Balance
     description: Book and available balance.
   - name: Holds
@@ -40,9 +47,6 @@ tags:
   - name: Health
     description: Liveness and readiness.
 
-security:
-  - bearerAuth: []
-
 paths:
   # ---------------------------------------------------------------- Accounts
   /api/v1/ledger-accounts:
@@ -54,7 +58,8 @@ paths:
         Called by S1. The `account_id` must be the same id S1 uses; S2 does not
         generate a new id. Repeating the same request with the same
         `Idempotency-Key` returns the same response. An existing `account_id`
-        with a different body returns 409 CONFLICT.
+        with a different body returns 409 CONFLICT. A new account starts with
+        `posting_allowed = true`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/CorrelationId'
@@ -79,8 +84,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/LedgerAccountResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -88,7 +91,7 @@ paths:
     get:
       tags: [Accounts]
       operationId: getLedgerAccount
-      summary: Get a ledger account and its status
+      summary: Get a ledger account and its posting permission
       parameters:
         - $ref: '#/components/parameters/AccountId'
         - $ref: '#/components/parameters/CorrelationId'
@@ -102,20 +105,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/LedgerAccountResponse'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
-  /api/v1/ledger-accounts/{accountId}/status:
-    patch:
+  /api/v1/ledger-accounts/{accountId}/permission:
+    put:
       tags: [Accounts]
-      operationId: updateLedgerAccountStatus
-      summary: Update the account status (ACTIVE, FROZEN, CLOSED)
+      operationId: setLedgerAccountPermission
+      summary: Set whether posting is allowed on the account
       description: |
-        Called by S1, which is the source of truth for status. Closing an account
-        with a non-zero balance or an active hold is rejected with
-        409 ACCOUNT_NOT_EMPTY.
+        Called by S1, which owns the account status. S2 does not keep the status
+        itself, only this flag. `allowed = false` (account frozen or closed in S1)
+        makes holds and captures fail with 422 ACCOUNT_BLOCKED; release and reads
+        stay allowed. The call sets a value, so repeating it is safe.
+        Before closing an account, S1 should read the balance
+        (`GET .../balance`) and close only when `book` and `held` are both zero.
       parameters:
         - $ref: '#/components/parameters/AccountId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -125,10 +129,13 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateAccountStatusRequest'
+              $ref: '#/components/schemas/UpdateAccountPermissionRequest'
+            example:
+              allowed: false
+              reason: Account frozen by S1
       responses:
         '200':
-          description: Status updated.
+          description: Permission updated.
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
@@ -137,10 +144,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LedgerAccountResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
-        '409': { $ref: '#/components/responses/Conflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   # ----------------------------------------------------------------- Balance
@@ -171,8 +175,6 @@ paths:
                 held: { amount: 2500000, currency: IRR }
                 available: { amount: 7500000, currency: IRR }
                 as_of: '2026-10-12T09:00:00Z'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -187,8 +189,8 @@ paths:
         creates no journal entry. Only one hold exists per `transfer_id`:
         repeating with the same key (or the same account and amount) returns the
         existing hold; the same `transfer_id` with a different account or amount
-        returns 409 CONFLICT. Two concurrent holds that together exceed the
-        balance cannot both succeed.
+        returns 409 CONFLICT. A blocked account returns 422 ACCOUNT_BLOCKED. Two
+        concurrent holds that together exceed the balance cannot both succeed.
         Suggested idempotency key: `{transfer_id}:hold`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -225,8 +227,6 @@ paths:
                 created_at: '2026-10-12T09:00:00Z'
                 resolved_at: null
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
@@ -256,8 +256,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/PagedHolds'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/holds/{holdId}:
@@ -278,8 +276,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HoldResponse'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -292,6 +288,8 @@ paths:
         Use when the transfer was rejected or failed before capture. No journal
         entry is created. Releasing an already released hold returns 200 with the
         same result. Releasing a captured hold returns 409 HOLD_ALREADY_CAPTURED.
+        Release is always allowed, even when the account is blocked, so held
+        funds are never stuck.
       parameters:
         - $ref: '#/components/parameters/HoldId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -312,8 +310,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HoldResponse'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
@@ -328,8 +324,9 @@ paths:
         * INTERNAL: debit the source account, credit `destination_account_id`.
         * EXTERNAL: debit the source account, credit the system account CLEARING.
 
-        If the destination is inactive or unknown, nothing changes and the hold
-        stays ACTIVE. Repeating with the same `Idempotency-Key` returns the same
+        If the source or the destination account is blocked (`posting_allowed` is
+        false) the call fails with 422 ACCOUNT_BLOCKED; if the destination is unknown
+        it fails with 404. In both cases nothing changes and the hold stays ACTIVE. Repeating with the same `Idempotency-Key` returns the same
         entry. Suggested key: `{transfer_id}:capture`.
       parameters:
         - $ref: '#/components/parameters/HoldId'
@@ -364,8 +361,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/CaptureHoldResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
@@ -411,8 +406,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/JournalEntryResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
@@ -457,8 +450,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/PagedJournalEntries'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   /api/v1/journal-entries/{entryId}:
@@ -479,8 +470,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JournalEntryResponse'
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -497,6 +486,8 @@ paths:
         would make a customer balance negative, the default policy is 422
         INSUFFICIENT_FUNDS (final policy to be confirmed with the instructors).
         Use this only for entries already posted; before capture use release.
+        Reversal is allowed even when an account is blocked (to be confirmed
+        with the instructors).
       parameters:
         - $ref: '#/components/parameters/EntryId'
         - $ref: '#/components/parameters/IdempotencyKey'
@@ -521,8 +512,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/JournalEntryResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
         '422': { $ref: '#/components/responses/Unprocessable' }
@@ -563,8 +552,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/StatementResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
@@ -594,8 +581,6 @@ paths:
               schema:
                 $ref: '#/components/schemas/TrialBalanceResponse'
         '400': { $ref: '#/components/responses/ValidationError' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { $ref: '#/components/responses/Forbidden' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
   # ------------------------------------------------------------------ Health
@@ -604,7 +589,6 @@ paths:
       tags: [Health]
       operationId: getHealth
       summary: Liveness - the process is running
-      security: []
       responses:
         '200':
           description: Alive.
@@ -613,12 +597,16 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
               example: { status: ok }
+        '4XX':
+          description: Client error (for example an unsupported method).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
   /ready:
     get:
       tags: [Health]
       operationId: getReady
       summary: Readiness - dependencies such as the database are reachable
-      security: []
       responses:
         '200':
           description: Ready.
@@ -627,18 +615,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/HealthStatus'
               example: { status: ready }
+        '4XX':
+          description: Client error (for example an unsupported method).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/ProblemDetails' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
 components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: |
-        Service-to-service authentication. The final mechanism (API key or JWT)
-        is still to be decided with the instructors (task T0.10).
-
   parameters:
     IdempotencyKey:
       name: Idempotency-Key
@@ -699,16 +683,6 @@ components:
             code: ERROR_VALIDATION
             detail: currency must be IRR
             correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
-    Unauthorized:
-      description: Token or signature is missing or invalid (UNAUTHORIZED).
-      content:
-        application/problem+json:
-          schema: { $ref: '#/components/schemas/ProblemDetails' }
-    Forbidden:
-      description: Access to the resource is not allowed (FORBIDDEN).
-      content:
-        application/problem+json:
-          schema: { $ref: '#/components/schemas/ProblemDetails' }
     NotFound:
       description: Resource not found (NOT_FOUND).
       content:
@@ -724,7 +698,7 @@ components:
     Conflict:
       description: |
         Conflict with the current state (CONFLICT, IDEMPOTENCY_KEY_REUSED,
-        ACCOUNT_NOT_EMPTY, HOLD_ALREADY_CAPTURED, HOLD_NOT_ACTIVE, HOLD_EXPIRED,
+        HOLD_ALREADY_CAPTURED, HOLD_NOT_ACTIVE, HOLD_EXPIRED,
         ENTRY_ALREADY_REVERSED, ENTRY_NOT_REVERSIBLE).
       content:
         application/problem+json:
@@ -737,7 +711,7 @@ components:
             detail: The hold was already captured
             correlation_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
     Unprocessable:
-      description: The request is valid but cannot be applied (INSUFFICIENT_FUNDS, ACCOUNT_NOT_ACTIVE).
+      description: The request is valid but cannot be applied (INSUFFICIENT_FUNDS, ACCOUNT_BLOCKED).
       content:
         application/problem+json:
           schema: { $ref: '#/components/schemas/ProblemDetails' }
@@ -777,16 +751,13 @@ components:
       description: Base codes from the shared standard plus S2-specific codes.
       enum:
         - ERROR_VALIDATION
-        - UNAUTHORIZED
-        - FORBIDDEN
         - NOT_FOUND
         - CONFLICT
         - IDEMPOTENCY_KEY_REUSED
         - SERVICE_UNAVAILABLE
         - UPSTREAM_TIMEOUT
         - INSUFFICIENT_FUNDS
-        - ACCOUNT_NOT_ACTIVE
-        - ACCOUNT_NOT_EMPTY
+        - ACCOUNT_BLOCKED
         - HOLD_ALREADY_CAPTURED
         - HOLD_NOT_ACTIVE
         - HOLD_EXPIRED
@@ -825,9 +796,6 @@ components:
     AccountType:
       type: string
       enum: [CUSTOMER, SYSTEM]
-    AccountStatus:
-      type: string
-      enum: [ACTIVE, FROZEN, CLOSED]
     CreateLedgerAccountRequest:
       type: object
       required: [account_id, account_type, currency]
@@ -841,20 +809,26 @@ components:
           enum: [CUSTOMER]
           description: SYSTEM accounts are seeded at startup and cannot be created through the API.
         currency: { $ref: '#/components/schemas/Currency' }
-    UpdateAccountStatusRequest:
+    UpdateAccountPermissionRequest:
       type: object
-      required: [status]
+      required: [allowed]
       properties:
-        status: { $ref: '#/components/schemas/AccountStatus' }
+        allowed:
+          type: boolean
+          description: |
+            True means holds and captures are allowed. S1 sends false when the
+            account is frozen or closed.
         reason: { type: [string, 'null'], maxLength: 200 }
     LedgerAccountResponse:
       type: object
-      required: [account_id, account_type, currency, status, created_at, updated_at]
+      required: [account_id, account_type, currency, posting_allowed, created_at, updated_at]
       properties:
         account_id: { type: string, format: uuid }
         account_type: { $ref: '#/components/schemas/AccountType' }
         currency: { $ref: '#/components/schemas/Currency' }
-        status: { $ref: '#/components/schemas/AccountStatus' }
+        posting_allowed:
+          type: boolean
+          description: Set by S1. When false, holds and captures are rejected with ACCOUNT_BLOCKED.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -929,11 +903,6 @@ components:
           format: uuid
           description: Required when transfer_type is INTERNAL. Ignored for EXTERNAL (CLEARING is credited).
         description: { type: [string, 'null'], maxLength: 300 }
-      if:
-        properties:
-          transfer_type: { const: INTERNAL }
-      then:
-        required: [destination_account_id]
     CaptureHoldResponse:
       type: object
       required: [hold, entry]
