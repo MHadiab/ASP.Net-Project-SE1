@@ -1,5 +1,3 @@
-using System;
-
 namespace Ledger_and_Inventory_Service.DTOs;
 
 public record MoneyDto(long Amount, string Currency);
