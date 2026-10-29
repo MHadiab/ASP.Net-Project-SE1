@@ -1,4 +1,6 @@
 ﻿
+using System;
+
 namespace Ledger_and_Inventory_Service.Errors;
 
 public class AppException(string code, int status, string title,

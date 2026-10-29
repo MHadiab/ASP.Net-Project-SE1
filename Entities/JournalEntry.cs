@@ -1,4 +1,7 @@
-﻿namespace Ledger_and_Inventory_Service.Entities;
+﻿using System;
+using System.Collections.Generic;
+
+namespace Ledger_and_Inventory_Service.Entities;
 
 public class JournalEntry
 {

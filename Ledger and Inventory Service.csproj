@@ -25,5 +25,8 @@
   <ItemGroup>
     <Folder Include="Migrations\" />
   </ItemGroup>
-
+  <PropertyGroup>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;frontend/**</DefaultItemExcludes>
+  </PropertyGroup>
+  
 </Project>
