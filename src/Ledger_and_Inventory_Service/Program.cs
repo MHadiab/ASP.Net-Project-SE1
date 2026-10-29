@@ -29,7 +29,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy =
         JsonNamingPolicy.SnakeCaseLower);
 
-builder.Services.AddScoped<IHoldService, HoldService>();
+// builder.Services.AddScoped<IHoldService, HoldService>();
 
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

@@ -22,7 +22,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\Ledger and Inventory Service.csproj" />
+    <ProjectReference Include="..\..\src\Ledger_and_Inventory_Service\Ledger and Inventory Service.csproj" />
   </ItemGroup>
 
   <ItemGroup>
