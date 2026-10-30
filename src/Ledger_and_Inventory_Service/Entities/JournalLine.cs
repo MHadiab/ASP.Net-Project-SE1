@@ -1,4 +1,6 @@
-﻿namespace Ledger_and_Inventory_Service.Entities;
+﻿using System;
+
+namespace Ledger_and_Inventory_Service.Entities;
 
 public class JournalLine
 {

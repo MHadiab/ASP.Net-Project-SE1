@@ -19,11 +19,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="chore\LB-1-repo-rules\.github\CODEOWNERS" />
+    <Content Include="..\..\chore\LB-1-repo-rules\.github\CODEOWNERS" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="Migrations\" />
   </ItemGroup>
-
 </Project>

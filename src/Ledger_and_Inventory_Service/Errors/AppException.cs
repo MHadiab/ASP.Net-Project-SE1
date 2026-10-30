@@ -1,5 +1,4 @@
-﻿
-namespace Ledger_and_Inventory_Service.Errors;
+﻿namespace Ledger_and_Inventory_Service.Errors;
 
 public class AppException(string code, int status, string title,
     string? detail = null)
