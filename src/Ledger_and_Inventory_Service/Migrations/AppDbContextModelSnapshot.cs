@@ -22,6 +22,36 @@ namespace Ledger_and_Inventory_Service.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.AccountBalance", b =>
+                {
+                    b.Property<Guid>("AccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("account_id");
+
+                    b.Property<long>("BookBalance")
+                        .HasColumnType("bigint")
+                        .HasColumnName("balance_book");
+
+                    b.Property<long>("HeldAmount")
+                        .HasColumnType("bigint")
+                        .HasColumnName("held_amount");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<long>("Version")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("AccountId");
+
+                    b.ToTable("account_balances", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_account_balances_held_amount", "held_amount >= 0");
+                        });
+                });
+
             modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.Hold", b =>
                 {
                     b.Property<Guid>("Id")
@@ -268,6 +298,85 @@ namespace Ledger_and_Inventory_Service.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.LedgerAccount", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("AccountType")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("account_type");
+
+                    b.Property<bool>("AllowNegative")
+                        .HasColumnType("boolean")
+                        .HasColumnName("allow_negative");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasColumnType("character(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<bool>("PostingAllowed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("posting_allowed");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("SystemCode")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("system_code");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("Xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SystemCode")
+                        .IsUnique();
+
+                    b.ToTable("ledger_accounts", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_ledger_accounts_account_type", "account_type IN ('SYSTEM', 'CUSTOMER')");
+
+                            t.HasCheckConstraint("ck_ledger_accounts_allow_negative", "allow_negative = false OR account_type = 'SYSTEM'");
+
+                            t.HasCheckConstraint("ck_ledger_accounts_currency", "currency = 'IRR'");
+
+                            t.HasCheckConstraint("ck_ledger_accounts_system_code", "system_code IS NULL OR system_code IN ('CLEARING', 'CASH_ISSUANCE')");
+
+                            t.HasCheckConstraint("ck_ledger_accounts_system_shape", "(account_type = 'SYSTEM' AND system_code IS NOT NULL)\r\nOR\r\n(account_type = 'CUSTOMER' AND system_code IS NULL)");
+                        });
+                });
+
+            modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.AccountBalance", b =>
+                {
+                    b.HasOne("Ledger_and_Inventory_Service.Entities.LedgerAccount", "Account")
+                        .WithOne("Balance")
+                        .HasForeignKey("Ledger_and_Inventory_Service.Entities.AccountBalance", "AccountId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Account");
+                });
+
             modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.JournalEntry", b =>
                 {
                     b.HasOne("Ledger_and_Inventory_Service.Entities.JournalEntry", "ReversesEntry")
@@ -294,6 +403,12 @@ namespace Ledger_and_Inventory_Service.Migrations
                     b.Navigation("Lines");
 
                     b.Navigation("ReversedByEntry");
+                });
+
+            modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.LedgerAccount", b =>
+                {
+                    b.Navigation("Balance")
+                        .IsRequired();
                 });
 #pragma warning restore 612, 618
         }
