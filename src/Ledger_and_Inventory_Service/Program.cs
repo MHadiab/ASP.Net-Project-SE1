@@ -31,6 +31,8 @@ builder.Services.AddControllers()
 
 builder.Services.AddScoped<IPostingService, PostingService>();
 
+builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
+
 // builder.Services.AddScoped<IHoldService, HoldService>();
 
 
@@ -43,16 +45,46 @@ builder.Services.AddSwaggerGen();
 
 
 //CORS: allow the React (Vite) frontend
+var allowedOrigins = new List<string>
+{
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+};
+
+if (builder.Environment.IsDevelopment())
+{
+    allowedOrigins.Add("http://localhost:8088");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy => policy
-        .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+        .WithOrigins(allowedOrigins.ToArray())
         .AllowAnyHeader()
         .AllowAnyMethod()
         .WithExposedHeaders("X-Correlation-ID"));
 });
 
+
 var app = builder.Build();
+
+if (app.Configuration.GetValue<bool>("SeedDemo"))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "Demo seeding is only available in Development.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var postingService =
+        scope.ServiceProvider.GetRequiredService<IPostingService>();
+
+    await LedgerDemoSeed.RunAsync(db, postingService);
+}
+
 app.UseCors("Frontend");
 app.UseExceptionHandler();
 app.UseSwagger();

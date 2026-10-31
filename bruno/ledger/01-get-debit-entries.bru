@@ -1,0 +1,41 @@
+meta {
+  name: Get account debit entries
+  type: http
+  seq: 1
+}
+
+get {
+  url: http://localhost:8082/api/v1/accounts/0192a7d0-0000-7000-8000-000000000001/entries?direction=DEBIT&limit=50
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+  X-Correlation-ID: s04-bruno-success
+}
+
+tests {
+  test("Returns account debit entries", function () {
+    expect(res.getStatus()).to.equal(200);
+
+    const body = res.getBody();
+
+    expect(body.account_id).to.equal(
+      "0192a7d0-0000-7000-8000-000000000001"
+    );
+
+    expect(body.items).to.be.an("array").that.is.not.empty;
+
+    for (const item of body.items) {
+      expect(item.direction).to.equal("DEBIT");
+      expect(item.amount).to.be.above(0);
+      expect(item.is_reversed).to.be.a("boolean");
+    }
+  });
+
+  test("Returns the correlation identifier", function () {
+    expect(res.getHeader("x-correlation-id"))
+      .to.equal("s04-bruno-success");
+  });
+}

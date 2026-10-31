@@ -517,6 +517,108 @@ paths:
         '422': { $ref: '#/components/responses/Unprocessable' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  # --------------------------------------------------------- Ring endpoint
+  /api/v1/accounts/{id}/entries:
+    get:
+      tags: [ Journal ]
+      operationId: getJournalEntries
+      summary: List account journal lines for risk assessment
+      description: |
+        Used by S4 Risk to retrieve recent account movements.
+        Each item represents one journal line belonging to this account.
+
+        Results are ordered by posted_at descending, entry_number descending,
+        and line_no descending.
+
+        The from filter is inclusive. When omitted, no lower time bound applies.
+        When direction is omitted, both DEBIT and CREDIT are returned.
+        Reversal lines are included and filtered by their own direction.
+        Each item's is_reversed flag indicates whether its journal entry has a
+        reversal at query time, independently of the direction and from filters.
+        This is the current reversal state, not a historical as-of state.
+
+        An existing account with no matching lines returns 200 with an empty
+        items array. A missing account returns 404 NOT_FOUND.
+
+        Reuse next_cursor with the same account, direction and from filters.
+        Invalid cursors or cursors used with different filters return
+        400 ERROR_VALIDATION. No snapshot across pages is guaranteed.
+
+        This operation is read-only and does not require Idempotency-Key.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Account identifier shared with S1.
+          schema:
+            type: string
+            format: uuid
+          example: 0192a7d0-0000-7000-8000-000000000001
+
+        - name: direction
+          in: query
+          required: false
+          description: Filter by the direction of the account journal line.
+          schema:
+            $ref: '#/components/schemas/Direction'
+          example: DEBIT
+
+        - name: from
+          in: query
+          required: false
+          description: Inclusive lower bound for posted_at, in UTC with a Z suffix.
+          schema:
+            type: string
+            format: date-time
+            pattern: 'Z$'
+          example: '2026-10-31T00:00:00Z'
+
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/CorrelationId'
+
+      responses:
+        '200':
+          description: Matching account journal lines.
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalEntriesResponse'
+              examples:
+                matchingLines:
+                  summary: One debit line
+                  value:
+                    account_id: 0192a7d0-0000-7000-8000-000000000001
+                    items:
+                      - entry_id: 0192a7e4-6b1d-7c3e-9a41-2f5d8e0b7c11
+                        entry_number: 42
+                        line_no: 1
+                        posted_at: '2026-10-31T10:00:00Z'
+                        direction: DEBIT
+                        amount: 100000
+                        balance_after: 900000
+                        entry_type: TRANSFER_INTERNAL
+                        reference_id: 0192a7e5-3b0d-7c55-9a51-0c7e2b1d8f40
+                        description: Internal transfer
+                        is_reversed: false
+                    next_cursor: null
+                noMatchingLines:
+                  summary: Existing account with no matching lines
+                  value:
+                    account_id: 0192a7d0-0000-7000-8000-000000000001
+                    items: [ ]
+                    next_cursor: null
+
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   # --------------------------------------------------------------- Statement
   /api/v1/ledger-accounts/{accountId}/statement:
     get:
@@ -1076,3 +1178,40 @@ components:
         accounts:
           type: array
           items: { $ref: '#/components/schemas/TrialBalanceAccount' }
+
+    # ------------------------------------------------------- Ring endpoint
+    JournalEntryItem:
+      allOf:
+        - $ref: '#/components/schemas/StatementItem'
+        - type: object
+          required: [ line_no, is_reversed ]
+          properties:
+            line_no:
+              type: integer
+              minimum: 1
+              maximum: 32767
+              description: Line number within the journal entry.
+            is_reversed:
+              type: boolean
+              description: |
+                True when another journal entry reverses this item's entry at
+                query time. Derived from the reversal relationship, even when
+                the reversing line is excluded by the request filters.
+                This does not mean that the item itself has entry_type REVERSAL.
+
+    JournalEntriesResponse:
+      type: object
+      required: [ account_id, items, next_cursor ]
+      properties:
+        account_id:
+          type: string
+          format: uuid
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalEntryItem'
+        next_cursor:
+          type: [ string, 'null' ]
+          description: |
+            Opaque continuation cursor. Null when no further page is available.
+            Clients must not construct or interpret this value.
