@@ -1,11 +1,15 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Ledger_and_Inventory_Service.Data;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 
 #nullable disable
 
 namespace Ledger_and_Inventory_Service.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20261030185603_AddLedgerAccountsAndBalances")]
     public partial class AddLedgerAccountsAndBalances : Migration
     {
         /// <inheritdoc />

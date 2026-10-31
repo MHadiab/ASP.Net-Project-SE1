@@ -4,9 +4,10 @@ using Xunit;
 
 public class PostgresSmokeTests : IAsyncLifetime
 {
-    private readonly PostgreSqlContainer _db = new PostgreSqlBuilder()
-        .WithImage("postgres:16-alpine")
-        .Build();
+    private readonly PostgreSqlContainer _db =
+        new PostgreSqlBuilder("postgres:16-alpine")
+            .Build();
+
 
     public Task InitializeAsync() => _db.StartAsync();
     public Task DisposeAsync() => _db.DisposeAsync().AsTask();
