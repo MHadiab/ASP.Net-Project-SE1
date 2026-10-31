@@ -220,6 +220,156 @@ public class PostingServiceTests : IAsyncLifetime
         Assert.False(db.ChangeTracker.HasChanges());
     }
 
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(20L)]
+    public async Task Capture_posts_reserved_amount_and_preserves_other_holds_in_callers_transaction(
+        long otherHeldAmount)
+    {
+        var (source, destination) = await SeedAsync();
+        var holdId = await ReserveAsync(source, 80, otherHeldAmount);
+        await using var db = CreateContext();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await LockCaptureAccountsAsync(db, source, destination);
+        var hold = await db.Holds.SingleAsync(row => row.Id == holdId);
+        var sourceBalance = await db.AccountBalances.SingleAsync(row => row.AccountId == source);
+        sourceBalance.HeldAmount -= hold.Amount;
+        await db.SaveChangesAsync();
+        Assert.False(db.ChangeTracker.HasChanges());
+
+        var entry = Transfer(source, destination, hold.Amount);
+        entry.HoldId = hold.Id;
+        entry.ReferenceId = hold.ReferenceId;
+        await new PostingService(db).PostAsync(entry);
+        hold.Capture(entry.Id);
+        await db.SaveChangesAsync();
+
+        await using (var outside = CreateContext())
+        {
+            var outsideBalance = (await outside.AccountBalances.FindAsync(source))!;
+            Assert.Equal(100L, outsideBalance.BookBalance);
+            Assert.Equal(80L + otherHeldAmount, outsideBalance.HeldAmount);
+            Assert.Equal(HoldStatus.Active, (await outside.Holds.FindAsync(holdId))!.Status);
+            Assert.Equal(1, await outside.JournalEntries.CountAsync());
+        }
+
+        await transaction.CommitAsync();
+
+        await using var verify = CreateContext();
+        var persistedBalance = (await verify.AccountBalances.FindAsync(source))!;
+        var persistedHold = (await verify.Holds.FindAsync(holdId))!;
+        Assert.Equal(20L, persistedBalance.BookBalance);
+        Assert.Equal(otherHeldAmount, persistedBalance.HeldAmount);
+        Assert.Equal(20L - otherHeldAmount, persistedBalance.AvailableBalance);
+        Assert.Equal(80L, (await verify.AccountBalances.FindAsync(destination))!.BookBalance);
+        Assert.Equal(HoldStatus.Captured, persistedHold.Status);
+        Assert.Equal(entry.Id, persistedHold.CapturedEntryId);
+        Assert.NotNull(persistedHold.ResolvedAt);
+        Assert.Equal(holdId, (await verify.JournalEntries.FindAsync(entry.Id))!.HoldId);
+        Assert.Equal(2, await verify.JournalEntries.CountAsync());
+        Assert.Equal(4, await verify.JournalLines.CountAsync());
+        Assert.Equal(0L, await verify.AccountBalances.SumAsync(balance => balance.BookBalance));
+        if (otherHeldAmount > 0)
+        {
+            var remainingHold = await verify.Holds.SingleAsync(row =>
+                row.AccountId == source && row.Id != holdId);
+            Assert.Equal(HoldStatus.Active, remainingHold.Status);
+            Assert.Equal(otherHeldAmount, remainingHold.Amount);
+        }
+    }
+
+    [Fact]
+    public async Task Capture_journal_failure_restores_reservation_and_tracked_hold_changes()
+    {
+        var (source, destination) = await SeedAsync();
+        var holdId = await ReserveAsync(source, 80, 20);
+        await using var db = CreateContext();
+        var existingEntryId = await db.JournalEntries.AsNoTracking()
+            .Select(entry => entry.Id).SingleAsync();
+        await using var transaction = await db.Database.BeginTransactionAsync();
+        await LockCaptureAccountsAsync(db, source, destination);
+        var hold = await db.Holds.SingleAsync(row => row.Id == holdId);
+        var sourceBalance = await db.AccountBalances.SingleAsync(row => row.AccountId == source);
+        var duplicate = Transfer(source, destination, hold.Amount);
+        duplicate.Id = existingEntryId;
+        duplicate.HoldId = hold.Id;
+        duplicate.ReferenceId = hold.ReferenceId;
+        sourceBalance.HeldAmount -= hold.Amount;
+        hold.Capture(duplicate.Id);
+        Assert.True(db.ChangeTracker.HasChanges());
+        await db.SaveChangesAsync();
+        Assert.False(db.ChangeTracker.HasChanges());
+
+        var error = await Assert.ThrowsAsync<AppException>(() =>
+            new PostingService(db).PostAsync(duplicate));
+
+        Assert.Equal("CONFLICT", error.Code);
+        await using var verify = CreateContext();
+        var persistedBalance = (await verify.AccountBalances.FindAsync(source))!;
+        var persistedHold = (await verify.Holds.FindAsync(holdId))!;
+        Assert.Equal(100L, persistedBalance.BookBalance);
+        Assert.Equal(100L, persistedBalance.HeldAmount);
+        Assert.Equal(0L, persistedBalance.AvailableBalance);
+        Assert.Equal(1L, persistedBalance.Version);
+        var destinationBalance = (await verify.AccountBalances.FindAsync(destination))!;
+        Assert.Equal(0L, destinationBalance.BookBalance);
+        Assert.Equal(0L, destinationBalance.Version);
+        Assert.Equal(HoldStatus.Active, persistedHold.Status);
+        Assert.Null(persistedHold.CapturedEntryId);
+        Assert.Null(persistedHold.ResolvedAt);
+        Assert.Equal(2, await verify.Holds.CountAsync(row => row.Status == HoldStatus.Active));
+        Assert.Equal(1, await verify.JournalEntries.CountAsync());
+        Assert.Equal(2, await verify.JournalLines.CountAsync());
+    }
+
+    private async Task<Guid> ReserveAsync(Guid accountId, long amount, long otherHeldAmount)
+    {
+        await using var db = CreateContext();
+        var balance = await db.AccountBalances.SingleAsync(row => row.AccountId == accountId);
+        balance.HeldAmount = amount + otherHeldAmount;
+        var hold = new Hold
+        {
+            AccountId = accountId,
+            Amount = amount,
+            ReferenceId = Guid.CreateVersion7(),
+            ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+            CorrelationId = "capture-posting-tests"
+        };
+        db.Holds.Add(hold);
+        if (otherHeldAmount > 0)
+        {
+            db.Holds.Add(new Hold
+            {
+                AccountId = accountId,
+                Amount = otherHeldAmount,
+                ReferenceId = Guid.CreateVersion7(),
+                ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(15),
+                CorrelationId = "other-hold-tests"
+            });
+        }
+        await db.SaveChangesAsync();
+        return hold.Id;
+    }
+
+    private static async Task LockCaptureAccountsAsync(AppDbContext db, params Guid[] accountIds)
+    {
+        var orderedIds = accountIds.Distinct().OrderBy(accountId => accountId).ToArray();
+        foreach (var accountId in orderedIds)
+        {
+            await db.LedgerAccounts.FromSqlInterpolated($"""
+                SELECT account.*, account.xmin FROM ledger_accounts AS account
+                WHERE account.id = {accountId} FOR SHARE
+                """).AsNoTracking().ToListAsync();
+        }
+        foreach (var accountId in orderedIds)
+        {
+            await db.AccountBalances.FromSqlInterpolated($"""
+                SELECT * FROM account_balances
+                WHERE account_id = {accountId} FOR UPDATE
+                """).AsNoTracking().ToListAsync();
+        }
+    }
+
     private async Task<(Guid Source, Guid Destination)> SeedAsync()
     {
         var issuance = NewAccount(AccountType.SYSTEM);
