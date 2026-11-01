@@ -1,8 +1,10 @@
 using System.Text.Json;
+using FluentValidation;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
 using Ledger_and_Inventory_Service.Services.Interfaces;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
 //import .env file
@@ -23,13 +25,44 @@ var connectionString =
 builder.Services.AddDbContext<AppDbContext>(o =>
     o.UseNpgsql(connectionString));
 
-
+//JSON
 builder.Services.AddControllers()
-    //JSON snake-case converter
-    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy =
-        JsonNamingPolicy.SnakeCaseLower);
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy =
+            JsonNamingPolicy.SnakeCaseLower;
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = ctx =>
+        {
+            var problem = new ProblemDetails
+            {
+                Type = "https://errors.labbank.example/error-validation",
+                Title = "Validation failed",
+                Status = 400,
+                Detail = "The request body or parameters are invalid."
+            };
+            problem.Extensions["code"] = "ERROR_VALIDATION";
+            problem.Extensions["correlation_id"] = ctx.HttpContext.TraceIdentifier;
+            problem.Extensions["errors"] = ctx.ModelState
+                .Where(kv => kv.Value?.Errors.Count > 0)
+                .Select(kv => new { field = kv.Key, message = kv.Value!.Errors[0].ErrorMessage });
 
-// builder.Services.AddScoped<IHoldService, HoldService>();
+            return new ObjectResult(problem)
+            {
+                StatusCode = 400,
+                ContentTypes = { "application/problem+json" }
+            };
+        };
+    });
+
+
+// ثبت خودکار تمام ولیدیتورهای نوشته‌شده در assembly
+builder.Services.AddValidatorsFromAssemblyContaining<Program>();
+
+builder.Services.AddScoped<IHoldService, HoldService>();
 
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
