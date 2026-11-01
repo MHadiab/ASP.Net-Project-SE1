@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FluentValidation;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
@@ -58,11 +57,12 @@ builder.Services.AddControllers()
         };
     });
 
-
-// ثبت خودکار تمام ولیدیتورهای نوشته‌شده در assembly
-builder.Services.AddValidatorsFromAssemblyContaining<Program>();
-
 builder.Services.AddScoped<IHoldService, HoldService>();
+
+
+builder.Services.AddScoped<IPostingService, PostingService>();
+
+// builder.Services.AddScoped<IHoldService, HoldService>();
 
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

@@ -10,7 +10,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) :DbContext(opt
 
 
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
-
     public DbSet<JournalLine> JournalLines => Set<JournalLine>();
     public DbSet<AccountBalance> AccountBalances => Set<AccountBalance>();
     public DbSet<LedgerAccount> LedgerAccounts => Set<LedgerAccount>();
