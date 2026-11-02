@@ -1,0 +1,25 @@
+meta {
+  name: Reject invalid page size
+  type: http
+  seq: 2
+}
+
+get {
+  url: http://localhost:8082/api/v1/accounts/0192a7d0-0000-7000-8000-000000000001/entries?limit=0
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/problem+json
+}
+
+tests {
+  test("Returns a validation problem", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().status).to.equal(400);
+    expect(res.getBody().code).to.equal("ERROR_VALIDATION");
+    expect(res.getHeader("content-type"))
+      .to.include("application/problem+json");
+  });
+}
