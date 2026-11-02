@@ -1,4 +1,27 @@
-# React + TypeScript + Vite
+# S2 Frontend
+
+Run these commands from `frontend/`:
+
+```powershell
+npm.cmd ci
+npm.cmd run gen:api
+npm.cmd run build
+npm.cmd run dev
+```
+
+`gen:api` generates `src/api/schema.d.ts` from `../openapi/ledger.yaml`.
+Commit the generated file and regenerate it whenever the contract changes.
+Capture the successful `gen:api` output for the Session 4 report.
+
+Use the typed `api` export from `src/api/client.ts` for backend requests.
+Contract paths already include `/api/v1`, so the client uses `/` as its base URL.
+The Vite development server proxies `/api` to `http://localhost:8082`;
+start the backend separately. Production hosting must configure its own API routing.
+
+TypeScript 5.9 is used to satisfy the installed OpenAPI generator's peer dependency.
+The optional Session 4 UI page has not been implemented.
+
+## Original Template Notes
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

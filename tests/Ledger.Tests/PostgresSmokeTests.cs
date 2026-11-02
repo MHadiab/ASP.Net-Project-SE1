@@ -8,6 +8,7 @@ public class PostgresSmokeTests : IAsyncLifetime
         new PostgreSqlBuilder("postgres:16-alpine")
             .Build();
 
+
     public Task InitializeAsync() => _db.StartAsync();
     public Task DisposeAsync() => _db.DisposeAsync().AsTask();
 
