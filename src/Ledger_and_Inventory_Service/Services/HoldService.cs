@@ -11,7 +11,6 @@ namespace Ledger_and_Inventory_Service.Services;
 
 public class HoldService(AppDbContext db,ILogger<HoldService> logger): IHoldService
 {
-    
 public async Task<HoldResponse> CreateHoldAsync(
     CreateHoldRequest request,
     string correlationId,
@@ -171,7 +170,6 @@ public async Task<HoldResponse> CreateHoldAsync(
 
     return MapToResponse(hold);
 }
-
 
 
     public async Task<HoldResponse> GetHoldByIdAsync(Guid holdId, CancellationToken ct)

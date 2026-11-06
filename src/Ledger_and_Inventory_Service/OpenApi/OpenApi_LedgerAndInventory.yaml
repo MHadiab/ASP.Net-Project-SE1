@@ -900,7 +900,7 @@ components:
       enum: [CUSTOMER, SYSTEM]
     CreateLedgerAccountRequest:
       type: object
-      required: [account_id, account_type, currency]
+      required: [account_id]
       properties:
         account_id:
           type: string

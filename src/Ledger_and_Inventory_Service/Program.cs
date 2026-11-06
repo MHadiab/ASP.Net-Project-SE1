@@ -1,8 +1,10 @@
 using System.Text.Json;
+using FluentValidation;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
 using Ledger_and_Inventory_Service.Services.Interfaces;
+using Ledger_and_Inventory_Service.Validators;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -58,12 +60,11 @@ builder.Services.AddControllers()
     });
 
 builder.Services.AddScoped<IHoldService, HoldService>();
-
-
 builder.Services.AddScoped<IPostingService, PostingService>();
+builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
 
-// builder.Services.AddScoped<IHoldService, HoldService>();
 
+builder.Services.AddValidatorsFromAssemblyContaining<CreateHoldValidator>();
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
@@ -77,7 +78,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy => policy
-        .WithOrigins("http://localhost:5173", "http://127.0.0.1:5173")
+        .WithOrigins("http://localhost:5037", "http://127.0.0.1:5037")
         .AllowAnyHeader()
         .AllowAnyMethod()
         .WithExposedHeaders("X-Correlation-ID"));
