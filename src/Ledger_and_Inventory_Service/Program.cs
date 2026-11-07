@@ -38,15 +38,17 @@ builder.Services.AddControllers()
     {
         options.InvalidModelStateResponseFactory = ctx =>
         {
+            var correlationId = ctx.HttpContext.Request.Headers["X-Correlation-ID"].FirstOrDefault()
+                                ?? ctx.HttpContext.TraceIdentifier;
             var problem = new ProblemDetails
             {
-                Type = "https://errors.labbank.example/error-validation",
+                Type = "https://errors.labbank.example/validation-error",
                 Title = "Validation failed",
                 Status = 400,
                 Detail = "The request body or parameters are invalid."
             };
-            problem.Extensions["code"] = "ERROR_VALIDATION";
-            problem.Extensions["correlation_id"] = ctx.HttpContext.TraceIdentifier;
+            problem.Extensions["code"] = "VALIDATION_ERROR";
+            problem.Extensions["correlation_id"] = correlationId;
             problem.Extensions["errors"] = ctx.ModelState
                 .Where(kv => kv.Value?.Errors.Count > 0)
                 .Select(kv => new { field = kv.Key, message = kv.Value!.Errors[0].ErrorMessage });
@@ -58,14 +60,20 @@ builder.Services.AddControllers()
             };
         };
     });
+builder.Services.ConfigureHttpJsonOptions(o =>
+    o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
+
+//Services
 builder.Services.AddScoped<IHoldService, HoldService>();
 builder.Services.AddScoped<IPostingService, PostingService>();
 builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
 
-
+//fluent validators
 builder.Services.AddValidatorsFromAssemblyContaining<CreateHoldValidator>();
 
+
+//global extension handler
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -85,8 +93,8 @@ builder.Services.AddCors(options =>
 });
 
 var app = builder.Build();
-app.UseCors("Frontend");
 app.UseExceptionHandler();
+app.UseCors("Frontend");
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
