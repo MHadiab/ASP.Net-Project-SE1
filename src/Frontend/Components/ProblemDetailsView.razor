@@ -1,0 +1,16 @@
+﻿@using Frontend.Models
+@if (Problem is not null)
+{
+    <div class="problem-details">
+        <h3>@Problem.Title</h3>
+
+        <p>Status: @Problem.Status</p>
+        <p>Code: @Problem.Code</p>
+        <p>@Problem.Detail</p>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public ApiProblemDetails? Problem { get; set; }
+}

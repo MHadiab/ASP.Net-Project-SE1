@@ -135,7 +135,8 @@ public class HoldServiceTests
 
             var savedHold = await db.Holds
                 .SingleOrDefaultAsync(h => h.Id == result.HoldId);
-
+            
+            
             Assert.NotNull(savedHold);
         }
         finally
@@ -310,7 +311,6 @@ public class HoldServiceTests
         {
             var service = CreateService(db);
             var request = CreateRequest(accountId);
-
             await Assert.ThrowsAsync<AppException>(
                 () => service.CreateHoldAsync(
                     request,
