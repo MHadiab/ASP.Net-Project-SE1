@@ -20,7 +20,9 @@ public class HoldsController(IHoldService holdService,
         
         correlationId ??= HttpContext.TraceIdentifier;
         HttpContext.Response.Headers["X-Correlation-ID"] = correlationId;
-
+        
+        await validator.ValidateAndThrowAsync(request, ct);
+        
         var response = await holdService.CreateHoldAsync(request, correlationId, idempotencyKey, ct);
         return StatusCode(201, response);
     }
