@@ -1,4 +1,6 @@
-﻿namespace Ledger_and_Inventory_Service.DTOs;
+﻿using System;
+
+namespace Ledger_and_Inventory_Service.DTOs;
 
 public record CreateLedgerAccountRequest(
     Guid AccountId,

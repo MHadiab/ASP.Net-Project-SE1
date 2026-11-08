@@ -1,10 +1,19 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
 using Ledger_and_Inventory_Service.Services.Interfaces;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 //import .env file
 try { DotNetEnv.Env.TraversePath().Load(); }

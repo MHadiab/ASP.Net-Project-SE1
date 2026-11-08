@@ -1,4 +1,5 @@
-﻿using Ledger_and_Inventory_Service.Enums;
+﻿using System;
+using Ledger_and_Inventory_Service.Enums;
 
 namespace Ledger_and_Inventory_Service.Entities;
 
