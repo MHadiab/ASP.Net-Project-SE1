@@ -63,7 +63,6 @@ builder.Services.AddControllers()
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
-
 //Services
 builder.Services.AddScoped<IHoldService, HoldService>();
 builder.Services.AddScoped<IPostingService, PostingService>();

@@ -187,6 +187,59 @@ public async Task<HoldResponse> CreateHoldAsync(
         return MapToResponse(hold);
     }
 
+
+    public async Task<HoldResponse> ReleaseHoldAsync(Guid holdId,ReleaseHoldRequest? request, string correlationId, CancellationToken ct)
+    {
+        var hold = await db.Holds.AsNoTracking()
+                       .SingleOrDefaultAsync(h => h.Id == holdId, ct)
+                   ?? throw new AppException(
+                       "HOLD_NOT_FOUND", 404, "Hold not found",
+                       $"Hold {holdId} does not exist.");
+        var accountId = hold.AccountId;
+        
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        
+        //قفل روی بالانس و برگردوندن ردیف
+        var balance = await db.AccountBalances
+            .FromSqlInterpolated($"""
+                                  SELECT * FROM account_balances
+                                  WHERE id_account = {accountId}
+                                  FOR UPDATE
+                                  """)
+            .SingleAsync(ct);
+        
+
+        switch (hold.Status)
+        {
+            case HoldStatus.Released:
+            case HoldStatus.Expired:
+                return MapToResponse(hold);
+            case HoldStatus.Captured:
+                throw new AppException("HOLD_ALREADY_CAPTUREd", 409,"Hold already captured","A captured hold cannot be released; use reversal instead.");
+        }
+        
+        //ACTIVE -> RELEASE
+        var now = DateTimeOffset.UtcNow;
+        hold.Status = HoldStatus.Released;
+        hold.ResolvedAt = now;
+        hold.ReleaseReason =  request?.Reason;
+        
+        balance.HeldAmount -= hold.Amount;
+        balance.Version++;
+        balance.UpdatedAt = now;
+        
+        if (balance.HeldAmount < 0)
+            throw new InvalidOperationException("held_amount became negative.");
+        
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        
+        logger.LogInformation("Hold {HoldId} captured for account {AccountId}. correlation_id={CorrelationId}",hold,accountId,correlationId);
+        
+        return MapToResponse(hold);
+    }
+
+
     private static HoldResponse MapToResponse(Hold hold) => new(
         hold.Id,
         hold.AccountId,

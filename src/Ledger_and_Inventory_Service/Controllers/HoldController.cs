@@ -8,7 +8,8 @@ namespace Ledger_and_Inventory_Service.Controllers;
 [ApiController]
 [Route("api/v1/holds")]
 public class HoldsController(IHoldService holdService,
-    IValidator<CreateHoldRequest> validator) : ControllerBase
+    IValidator<CreateHoldRequest> createValidator,
+    IValidator<ReleaseHoldRequest> releaseValidator) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> CreateHold(
@@ -21,7 +22,7 @@ public class HoldsController(IHoldService holdService,
         correlationId ??= HttpContext.TraceIdentifier;
         HttpContext.Response.Headers["X-Correlation-ID"] = correlationId;
         
-        await validator.ValidateAndThrowAsync(request, ct);
+        await createValidator.ValidateAndThrowAsync(request, ct);
         
         var response = await holdService.CreateHoldAsync(request, correlationId, idempotencyKey, ct);
         return StatusCode(201, response);
@@ -39,4 +40,26 @@ public class HoldsController(IHoldService holdService,
         var response = await holdService.GetHoldByIdAsync(holdId, ct);
         return Ok(response);
     }
+    
+    [HttpPost("{holdId:guid}/release")]
+    public async Task<IActionResult> ReleaseHold(
+        Guid holdId,
+        [FromBody] ReleaseHoldRequest? request,
+        [FromHeader(Name = "Idempotency-Key")] string? idempotencyKey,
+        [FromHeader(Name = "X-Correlation-ID")] string? correlationId,
+        CancellationToken ct)
+    {
+        correlationId ??= HttpContext.TraceIdentifier;
+        HttpContext.Response.Headers["X-Correlation-ID"] = correlationId;
+
+        if (request is not null)
+            await releaseValidator.ValidateAndThrowAsync(request, ct);
+
+        var response = await holdService.ReleaseHoldAsync(holdId, request, correlationId, ct);
+        return Ok(response);
+    }
+    
+    
 }
+
+
