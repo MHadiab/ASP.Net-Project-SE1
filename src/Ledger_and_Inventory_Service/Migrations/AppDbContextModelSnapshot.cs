@@ -52,6 +52,29 @@ namespace Ledger_and_Inventory_Service.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.CaptureReceipt", b =>
+                {
+                    b.Property<string>("Key")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("key");
+
+                    b.Property<string>("RequestHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("request_hash");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("response_json");
+
+                    b.HasKey("Key");
+
+                    b.ToTable("capture_receipts", (string)null);
+                });
+
             modelBuilder.Entity("Ledger_and_Inventory_Service.Entities.Hold", b =>
                 {
                     b.Property<Guid>("Id")
