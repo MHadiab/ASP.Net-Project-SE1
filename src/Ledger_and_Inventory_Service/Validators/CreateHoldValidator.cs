@@ -34,3 +34,12 @@ public class CreateHoldValidator : AbstractValidator<CreateHoldRequest>
             .MaximumLength(300).WithMessage("description cannot exceed 300 characters.");
     }
 }
+public class ReleaseHoldValidator : AbstractValidator<ReleaseHoldRequest>
+{
+    public ReleaseHoldValidator()
+    {
+        RuleFor(x => x.Reason)
+            .MaximumLength(200)
+            .WithMessage("reason must be at most 200 characters.");
+    }
+}
