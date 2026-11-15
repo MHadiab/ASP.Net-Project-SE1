@@ -1,0 +1,55 @@
+﻿@inject HttpClient Http
+
+<div>
+    <h3>Backend Connection</h3>
+
+    @if (_loading)
+    {
+        <p>Checking API connection...</p>
+    }
+    else if (_connected)
+    {
+        <p style="color: green;">Backend is available.</p>
+        <p>Status: @_statusCode</p>
+        <p>Response: @_responseBody</p>
+    }
+    else
+    {
+        <p style="color: red;">Backend connection failed.</p>
+        <p>Status: @_statusCode</p>
+        <p>Error: @_errorMessage</p>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _connected;
+    private string? _statusCode;
+    private string? _responseBody;
+    private string? _errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var response = await Http.GetAsync("ready");
+
+            _statusCode = $"{(int)response.StatusCode} {response.StatusCode}";
+
+            _responseBody = await response.Content.ReadAsStringAsync();
+
+            _connected = response.IsSuccessStatusCode;
+
+            if (!_connected)
+                _errorMessage = _responseBody;
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

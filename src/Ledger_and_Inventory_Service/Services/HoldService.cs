@@ -15,14 +15,13 @@ namespace Ledger_and_Inventory_Service.Services;
 
 public class HoldService(AppDbContext db,ILogger<HoldService> logger): IHoldService
 {
-    
 public async Task<HoldResponse> CreateHoldAsync(
     CreateHoldRequest request,
     string correlationId,
     string? idempotencyKey,
     CancellationToken ct)
 {
-    
+
     if (request.Amount.Amount <= 0)
     {
         throw new AppException(
@@ -31,10 +30,28 @@ public async Task<HoldResponse> CreateHoldAsync(
             "Invalid amount",
             "Hold amount must be greater than zero.");
     }
+    
+    
+    // Check account existence and posting permission.
+    var account = await db.LedgerAccounts
+        .FirstOrDefaultAsync(
+            a => a.Id == request.AccountId,
+            ct);
 
+    if (account == null)
+    {
+        throw new AppException(
+            "NOT_FOUND",
+            404,
+            "Account not found",
+            $"Ledger account {request.AccountId} does not exist.");
+    }
+    
+    
+    //start transaction
     await using var transaction =
         await db.Database.BeginTransactionAsync(ct);
-
+    
     // Lock the account balance row.
     // Other requests for this account must wait until this transaction ends.
     var accountBalance = await db.AccountBalances
@@ -70,22 +87,8 @@ public async Task<HoldResponse> CreateHoldAsync(
         await transaction.CommitAsync(ct);
         return MapToResponse(existingHold);
     }
-
-    // Check account existence and posting permission.
-    var account = await db.LedgerAccounts
-        .FirstOrDefaultAsync(
-            a => a.Id == request.AccountId,
-            ct);
-
-    if (account == null)
-    {
-        throw new AppException(
-            "NOT_FOUND",
-            404,
-            "Account not found",
-            $"Ledger account {request.AccountId} does not exist.");
-    }
-
+    
+    
     if (!account.PostingAllowed)
     {
         throw new AppException(
@@ -175,7 +178,6 @@ public async Task<HoldResponse> CreateHoldAsync(
 
     return MapToResponse(hold);
 }
-
 
 
     public async Task<HoldResponse> GetHoldByIdAsync(Guid holdId, CancellationToken ct)

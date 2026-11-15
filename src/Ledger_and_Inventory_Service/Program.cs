@@ -1,19 +1,10 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using System.Text.Json;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
 using Ledger_and_Inventory_Service.Services.Interfaces;
-using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 //import .env file
 try { DotNetEnv.Env.TraversePath().Load(); }
@@ -67,9 +58,14 @@ builder.Services.AddControllers()
     });
 
 builder.Services.AddScoped<IHoldService, HoldService>();
-builder.Services.AddScoped<ILedgerAccountService, LedgerAccountService>();
+
+
 builder.Services.AddScoped<IPostingService, PostingService>();
+
 builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
+
+// builder.Services.AddScoped<IHoldService, HoldService>();
+
 
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
@@ -118,23 +114,6 @@ if (app.Configuration.GetValue<bool>("SeedDemo"))
         scope.ServiceProvider.GetRequiredService<IPostingService>();
 
     await LedgerDemoSeed.RunAsync(db, postingService);
-}
-
-// System accounts (CLEARING, CASH_ISSUANCE) are created at startup if missing.
-// Set SeedSystemAccounts=false to skip (for example in tests that create them themselves).
-if (app.Configuration.GetValue("SeedSystemAccounts", true))
-{
-    try
-    {
-        await using var seedScope = app.Services.CreateAsyncScope();
-        var seedDb = seedScope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await SystemAccountSeed.EnsureAsync(seedDb);
-    }
-    catch (Exception ex)
-    {
-        // For example the database is down or migrations are not applied yet.
-        app.Logger.LogWarning(ex, "System accounts could not be seeded at startup.");
-    }
 }
 
 app.UseCors("Frontend");
