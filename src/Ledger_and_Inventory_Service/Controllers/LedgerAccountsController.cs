@@ -1,7 +1,4 @@
-﻿using System;
-using System.Threading;
-using System.Threading.Tasks;
-using Ledger_and_Inventory_Service.DTOs;
+﻿using Ledger_and_Inventory_Service.DTOs;
 using Ledger_and_Inventory_Service.Services.Interfaces;
 using Ledger_and_Inventory_Service.Validators;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +8,8 @@ namespace Ledger_and_Inventory_Service.Controllers;
 [ApiController]
 [Route("api/v1/ledger-accounts")]
 public class LedgerAccountsController(
-    ILedgerAccountService accountService) : ControllerBase
+    ILedgerAccountService accountService,
+    IBalanceService balanceService) : ControllerBase
 {
     [HttpPost]
     [ProducesResponseType(typeof(LedgerAccountResponse), 201)]
@@ -67,6 +65,21 @@ public class LedgerAccountsController(
 
         // Sets a value, so repeating the call is safe without an idempotency record.
         var response = await accountService.SetPermissionAsync(accountId, request, ct);
+        return Ok(response);
+    }
+
+    [HttpGet("{accountId:guid}/balance")]
+    [ProducesResponseType(typeof(BalanceResponse), 200)]
+    [ProducesResponseType(typeof(ProblemDetails), 404)]
+    [ProducesResponseType(typeof(ProblemDetails), 503)]
+    public async Task<IActionResult> GetBalance(
+        Guid accountId,
+        [FromHeader(Name = "X-Correlation-ID")] string? correlationId,
+        CancellationToken ct)
+    {
+        UseCorrelationId(correlationId);
+
+        var response = await balanceService.GetBalanceAsync(accountId, ct);
         return Ok(response);
     }
 

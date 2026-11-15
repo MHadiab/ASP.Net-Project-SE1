@@ -63,7 +63,7 @@ builder.Services.AddScoped<IHoldService, HoldService>();
 builder.Services.AddScoped<IPostingService, PostingService>();
 
 builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
-
+builder.Services.AddScoped<IBalanceService, BalanceService>();
 // builder.Services.AddScoped<IHoldService, HoldService>();
 
 
