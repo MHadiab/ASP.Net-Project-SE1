@@ -1,24 +1,25 @@
-﻿using DotNetEnv;
-using Ledger_and_Inventory_Service.Data;
+﻿using Ledger_and_Inventory_Service.Data;
 using Microsoft.EntityFrameworkCore;
+using Testcontainers.PostgreSql;
 
 namespace Ledger.Tests;
 
-public static class TestDatabase
+// xUnit creates a fresh instance and database for each test.
+public abstract class TestDatabase : IAsyncLifetime
 {
-    public static AppDbContext CreateContext()
+    private readonly PostgreSqlContainer _postgres =
+        new PostgreSqlBuilder("postgres:17").Build();
+
+    public async Task InitializeAsync()
     {
-        Env.TraversePath().Load();
-
-        var connectionString =
-            Environment.GetEnvironmentVariable("TEST_CONNECTION_STRING")
-            ?? throw new InvalidOperationException(
-                "TEST_CONNECTION_STRING is not set");
-
-        var options = new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(connectionString)
-            .Options;
-
-        return new AppDbContext(options);
+        await _postgres.StartAsync();
+        await using var db = CreateContext();
+        await db.Database.MigrateAsync();
     }
+
+    public Task DisposeAsync() => _postgres.DisposeAsync().AsTask();
+
+    protected AppDbContext CreateContext() => new(
+        new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(_postgres.GetConnectionString()).Options);
 }

@@ -13,7 +13,7 @@ using Npgsql;
 
 namespace Ledger_and_Inventory_Service.Services;
 
-public class CaptureService(AppDbContext db, IPostingService posting) : ICaptureService
+public class  CaptureService(AppDbContext db, IPostingService posting) : ICaptureService
 {
     public async Task<CaptureHoldResponse> CaptureAsync(Guid holdId, CaptureHoldRequest request,
         string idempotencyKey, string correlationId, CancellationToken ct = default)

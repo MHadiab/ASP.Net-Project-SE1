@@ -5,6 +5,7 @@ using Xunit;
 
 namespace Ledger.Tests;
 
+[Trait("Category", "Unit")]
 public class JournalEntryValidatorTests
 {
     [Theory]
