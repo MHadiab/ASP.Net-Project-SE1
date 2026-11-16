@@ -67,6 +67,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 //Services
 builder.Services.AddScoped<IHoldService, HoldService>();
 builder.Services.AddScoped<IPostingService, PostingService>();
+builder.Services.AddScoped<ICaptureService, CaptureService>();
 builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
 
 //fluent validators

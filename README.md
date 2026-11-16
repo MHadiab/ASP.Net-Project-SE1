@@ -74,6 +74,40 @@ Keep the service terminal open and run the following requests in a second termin
 | `GET /ready` | Database connectivity check |
 | `GET /api/v1/accounts/{id}/entries` | Read account journal lines from PostgreSQL for S4 |
 
+`POST /api/v1/holds/{holdId}/capture` is also implemented. Apply migrations before
+using it; the capture receipt table stores successful idempotent responses.
+Send `Idempotency-Key` (maximum 128 characters) and optionally `X-Correlation-ID`.
+
+Internal transfer body:
+
+```json
+{
+  "transfer_type": "INTERNAL",
+  "destination_account_id": "0192a7d0-0000-7000-8000-000000000002",
+  "description": "Internal transfer"
+}
+```
+
+For external transfers send `transfer_type: EXTERNAL`; S2 credits the existing
+SYSTEM account with `system_code: CLEARING`. An external destination ID is ignored.
+Provision CLEARING with an account balance before using external capture.
+The demo seed currently creates CASH_ISSUANCE, not CLEARING.
+
+Capture posts the full hold amount and returns HTTP 200 with `hold` and `entry`.
+The reservation, balances, journal, hold state, and successful response are committed
+in one transaction. Other holds remain reserved. Retrying the same key and body
+returns the original response; a different body or hold with that key returns
+409 `IDEMPOTENCY_KEY_REUSED`. A new key for an already captured hold returns
+409 `HOLD_ALREADY_CAPTURED`. Released/expired holds cannot be captured.
+Keys are stored for this capture endpoint and currently have no automatic expiry;
+other endpoints do not use this receipt store.
+
+Run capture API/integration tests (Docker required):
+
+```powershell
+dotnet test ".\tests\Ledger.Tests\Ledger.Tests.csproj" --filter "FullyQualifiedName~CaptureTests"
+```
+
 Other routes listed in OpenAPI are not necessarily fully implemented.
 This list alone does not satisfy the assignment requirement for two endpoints
 that access business data in the database.

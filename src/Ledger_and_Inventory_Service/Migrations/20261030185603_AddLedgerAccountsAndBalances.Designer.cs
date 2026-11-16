@@ -3,6 +3,7 @@ using System;
 using Ledger_and_Inventory_Service.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,6 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Ledger_and_Inventory_Service.Migrations
 {
 
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20261030185603_AddLedgerAccountsAndBalances")]
     partial class AddLedgerAccountsAndBalances
     {
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
