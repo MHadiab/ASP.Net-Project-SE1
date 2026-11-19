@@ -5,6 +5,8 @@
 namespace Ledger_and_Inventory_Service.Migrations
 {
     /// <inheritdoc />
+    [Microsoft.EntityFrameworkCore.Infrastructure.DbContext(typeof(Ledger_and_Inventory_Service.Data.AppDbContext))]
+    [Migration("20261113211939_AddCaptureReceipts")]
     public partial class AddCaptureReceipts : Migration
     {
         /// <inheritdoc />

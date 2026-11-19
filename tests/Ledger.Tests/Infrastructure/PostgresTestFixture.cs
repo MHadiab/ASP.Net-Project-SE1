@@ -8,8 +8,7 @@ namespace Ledger.Tests.Infrastructure;
 public class PostgresTestFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _database =
-        new PostgreSqlBuilder("postgres:17-alpine")
-            .WithImage("postgres:17-alpine")
+        new PostgreSqlBuilder("postgres:17")
             .Build();
 
     public CustomWebApplicationFactory Factory { get; private set; } = null!;

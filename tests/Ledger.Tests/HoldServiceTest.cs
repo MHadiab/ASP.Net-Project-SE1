@@ -10,7 +10,8 @@ using Microsoft.Extensions.Logging;
 using Moq;
 
 
-public class HoldServiceTests
+[Trait("Category", "Integration")]
+public class HoldServiceTests : TestDatabase
 {
     private static HoldService CreateService(AppDbContext db)
     {
@@ -102,7 +103,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithValidAmount_ShouldCreateHold()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(db);
 
@@ -153,7 +154,7 @@ public class HoldServiceTests
     public async Task CreateHold_WithInvalidAmount_ShouldThrowValidation(
         long amount)
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var service = CreateService(db);
 
@@ -177,7 +178,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithNonExistingAccount_ShouldThrowNotFound()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var service = CreateService(db);
 
@@ -198,7 +199,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithBlockedAccount_ShouldThrowAccountBlocked()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(
             db,
@@ -230,7 +231,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithDifferentCurrency_ShouldThrowCurrencyMismatch()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(db);
 
@@ -262,7 +263,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithInsufficientFunds_ShouldThrowInsufficientFunds()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(
             db,
@@ -300,7 +301,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithoutAccountBalance_ShouldThrowInsufficientFunds()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(
             db,
@@ -331,7 +332,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithDuplicateRequest_ShouldReturnExistingHold()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(db);
 
@@ -384,7 +385,7 @@ public class HoldServiceTests
     [Fact]
     public async Task CreateHold_WithDuplicateTransferIdAndDifferentAmount_ShouldThrowConflict()
     {
-        await using var db = TestDatabase.CreateContext();
+        await using var db = CreateContext();
 
         var accountId = await SeedAccountAsync(db);
 
