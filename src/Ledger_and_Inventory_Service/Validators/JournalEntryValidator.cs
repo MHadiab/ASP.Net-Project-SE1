@@ -1,4 +1,5 @@
-﻿using Ledger_and_Inventory_Service.Entities;
+﻿using System;
+using Ledger_and_Inventory_Service.Entities;
 using Ledger_and_Inventory_Service.Errors;
 
 namespace Ledger_and_Inventory_Service.Validators;

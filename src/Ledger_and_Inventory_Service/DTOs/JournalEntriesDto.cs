@@ -1,4 +1,7 @@
-﻿namespace Ledger_and_Inventory_Service.DTOs;
+﻿using System;
+using System.Collections.Generic;
+
+namespace Ledger_and_Inventory_Service.DTOs;
 
 public record JournalEntryItemDto(
     Guid EntryId,

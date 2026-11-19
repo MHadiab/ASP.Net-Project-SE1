@@ -1,10 +1,8 @@
 using System.Text.Json;
-using FluentValidation;
 using Ledger_and_Inventory_Service.Data;
 using Ledger_and_Inventory_Service.Errors;
 using Ledger_and_Inventory_Service.Services;
 using Ledger_and_Inventory_Service.Services.Interfaces;
-using Ledger_and_Inventory_Service.Validators;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 
@@ -38,17 +36,15 @@ builder.Services.AddControllers()
     {
         options.InvalidModelStateResponseFactory = ctx =>
         {
-            var correlationId = ctx.HttpContext.Request.Headers["X-Correlation-ID"].FirstOrDefault()
-                                ?? ctx.HttpContext.TraceIdentifier;
             var problem = new ProblemDetails
             {
-                Type = "https://errors.labbank.example/validation-error",
+                Type = "https://errors.labbank.example/error-validation",
                 Title = "Validation failed",
                 Status = 400,
                 Detail = "The request body or parameters are invalid."
             };
-            problem.Extensions["code"] = "VALIDATION_ERROR";
-            problem.Extensions["correlation_id"] = correlationId;
+            problem.Extensions["code"] = "ERROR_VALIDATION";
+            problem.Extensions["correlation_id"] = ctx.HttpContext.TraceIdentifier;
             problem.Extensions["errors"] = ctx.ModelState
                 .Where(kv => kv.Value?.Errors.Count > 0)
                 .Select(kv => new { field = kv.Key, message = kv.Value!.Errors[0].ErrorMessage });
@@ -60,21 +56,17 @@ builder.Services.AddControllers()
             };
         };
     });
-builder.Services.ConfigureHttpJsonOptions(o =>
-    o.SerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 
-
-//Services
 builder.Services.AddScoped<IHoldService, HoldService>();
+
+
 builder.Services.AddScoped<IPostingService, PostingService>();
 builder.Services.AddScoped<ICaptureService, CaptureService>();
 builder.Services.AddScoped<IJournalEntriesService, JournalEntriesService>();
+builder.Services.AddScoped<IBalanceService, BalanceService>();
+// builder.Services.AddScoped<IHoldService, HoldService>();
 
-//fluent validators
-builder.Services.AddValidatorsFromAssemblyContaining<CreateHoldValidator>();
 
-
-//global extension handler
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -84,18 +76,48 @@ builder.Services.AddSwaggerGen();
 
 
 //CORS: allow the React (Vite) frontend
+var allowedOrigins = new List<string>
+{
+    "http://localhost:5173",
+    "http://127.0.0.1:5173"
+};
+
+if (builder.Environment.IsDevelopment())
+{
+    allowedOrigins.Add("http://localhost:8088");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("Frontend", policy => policy
-        .WithOrigins("http://localhost:5037", "http://127.0.0.1:5037")
+        .WithOrigins(allowedOrigins.ToArray())
         .AllowAnyHeader()
         .AllowAnyMethod()
         .WithExposedHeaders("X-Correlation-ID"));
 });
 
+
 var app = builder.Build();
-app.UseExceptionHandler();
+
+if (app.Configuration.GetValue<bool>("SeedDemo"))
+{
+    if (!app.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException(
+            "Demo seeding is only available in Development.");
+    }
+
+    await using var scope = app.Services.CreateAsyncScope();
+
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var postingService =
+        scope.ServiceProvider.GetRequiredService<IPostingService>();
+
+    await LedgerDemoSeed.RunAsync(db, postingService);
+}
+
 app.UseCors("Frontend");
+app.UseExceptionHandler();
 app.UseSwagger();
 app.UseSwaggerUI();
 app.MapControllers();
