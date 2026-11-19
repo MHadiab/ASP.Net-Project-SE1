@@ -19,4 +19,11 @@ public interface IHoldService
         CancellationToken ct
     );
 
+    Task<HoldResponse> ReleaseHoldAsync(
+        Guid holdId,
+        ReleaseHoldRequest? request,
+        string correlationId,
+        CancellationToken ct
+    );
+
 }

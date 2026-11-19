@@ -22,4 +22,5 @@ public record HoldResponse(
     DateTimeOffset CreatedAt,
     DateTimeOffset? ResolvedAt
     );
-    
+
+public record ReleaseHoldRequest(string? Reason);
