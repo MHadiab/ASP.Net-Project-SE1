@@ -210,9 +210,29 @@ that the supplied correlation ID is returned.
 dotnet test ".\tests\Ledger.Tests\Ledger.Tests.csproj"
 ```
 
-Docker must be running. Integration tests create temporary PostgreSQL instances
-using Testcontainers and do not use the project's local database. The reversal
-test checks both debit and credit cases before and after posting a reversal.
+Docker must be running for integration tests. All database tests (holds, posting,
+and journal history) use Testcontainers to create a separate PostgreSQL 17 database
+for each test, apply all EF Core migrations, and remove the container afterward.
+They do not require `.env`, `TEST_CONNECTION_STRING`, or a manually created test
+database, and do not connect to the local development database. The first run may
+need to download the `postgres:17` image.
+
+Run only unit tests (no Docker or database required):
+
+```powershell
+dotnet test ".\tests\Ledger.Tests\Ledger.Tests.csproj" --filter "Category=Unit"
+```
+
+Run only database integration tests:
+
+```powershell
+dotnet test ".\tests\Ledger.Tests\Ledger.Tests.csproj" --filter "Category=Integration"
+```
+
+Unit tests cover journal entry validation. Integration tests cover hold creation,
+posting balances and transaction rollback, concurrent spending, and journal
+reversal history. The reversal test checks both debit and credit cases before
+and after posting a reversal.
 
 ## Cross-Team Agreement Status
 

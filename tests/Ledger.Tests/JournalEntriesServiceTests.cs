@@ -4,29 +4,13 @@ using Ledger_and_Inventory_Service.Entities;
 using Ledger_and_Inventory_Service.Enums;
 using Ledger_and_Inventory_Service.Services;
 using Microsoft.EntityFrameworkCore;
-using Testcontainers.PostgreSql;
 using Xunit;
 
 namespace Ledger.Tests;
 
-public class JournalEntriesServiceTests : IAsyncLifetime
+[Trait("Categ   ory", "Integration")]
+public class JournalEntriesServiceTests : TestDatabase
 {
-    private readonly PostgreSqlContainer _postgres =
-        new PostgreSqlBuilder("postgres:17").Build();
-
-    public async Task InitializeAsync()
-    {
-        await _postgres.StartAsync();
-        await using var db = CreateContext();
-        await db.Database.MigrateAsync();
-    }
-
-    public Task DisposeAsync() => _postgres.DisposeAsync().AsTask();
-
-    private AppDbContext CreateContext() => new(
-        new DbContextOptionsBuilder<AppDbContext>()
-            .UseNpgsql(_postgres.GetConnectionString()).Options);
-
     [Theory]
     [InlineData("DEBIT")]
     [InlineData("CREDIT")]

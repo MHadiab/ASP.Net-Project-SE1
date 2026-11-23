@@ -6,15 +6,15 @@ using Ledger_and_Inventory_Service.Entities;
 using Ledger_and_Inventory_Service.Enums;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
+using Ledger.Tests.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 
+[Trait("Category", "Integration")]
 public class HoldApiTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres =
-        new PostgreSqlBuilder()
-            .WithImage("postgres:17")
+        new PostgreSqlBuilder("postgres:17")
             .WithDatabase("ledger_test")
             .WithUsername("postgres")
             .WithPassword("postgres")
@@ -33,19 +33,7 @@ public class HoldApiTests : IAsyncLifetime
     {
         await _postgres.StartAsync();
 
-        _factory = new WebApplicationFactory<Program>()
-            .WithWebHostBuilder(builder =>
-            {
-                builder.ConfigureAppConfiguration((_, config) =>
-                {
-                    config.AddInMemoryCollection(
-                        new Dictionary<string, string?>
-                        {
-                            ["ConnectionStrings:Default"] =
-                                _postgres.GetConnectionString()
-                        });
-                });
-            });
+        _factory = new CustomWebApplicationFactory(_postgres.GetConnectionString());
 
         _client = _factory.CreateClient();
 
