@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Moq;
 
+namespace Ledger.Tests;
 
 [Trait("Category", "Integration")]
 public class HoldServiceTests : TestDatabase
