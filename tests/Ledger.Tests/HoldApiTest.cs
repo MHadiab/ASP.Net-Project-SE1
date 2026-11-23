@@ -10,6 +10,7 @@ using Ledger.Tests.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Testcontainers.PostgreSql;
 
+[Trait("Category", "Integration")]
 public class HoldApiTests : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _postgres =
